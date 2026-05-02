@@ -151,7 +151,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{name=~\"db|ingestor|api|prometheus|grafana\"}[5m]))"
+          "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{name=~\".*shark_bay.*\"}[1m]))"
         }
       ]
     },
@@ -166,7 +166,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (name) (container_memory_working_set_bytes{name=~\"db|ingestor|api|prometheus|grafana\"})"
+          "expr": "sum by (name) (container_memory_usage_bytes{name=~\".*shark_bay.*\"})"
         }
       ]
     },
