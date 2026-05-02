@@ -71,7 +71,7 @@ This repository runs a small market-data platform composed of:
 ### 4) `prometheus` — Metrics scraper
 
 - Scrape interval/evaluation interval: `10s`.
-- Scrapes API and ingestor targets configured in `observability/prometheus/prometheus.yml`.
+- Scrapes API, ingestor, and cAdvisor targets configured in `observability/prometheus/prometheus.yml`.
 
 ### 5) `cadvisor` — Container resource exporter
 
@@ -184,20 +184,18 @@ curl -sS http://localhost:8080/metrics | head
 curl -sS http://localhost:9090/api/v1/targets
 ```
 
-### cAdvisor target and dashboard verification
+### cAdvisor target verification (Prometheus UI)
+
+1. Open `http://localhost:9090/targets`.
+2. Verify the `cadvisor` target is **UP**.
+3. In the Prometheus expression browser, run:
+   - `container_memory_usage_bytes`
+   - `rate(container_cpu_usage_seconds_total[1m])`
+
+Optional CLI check:
 
 ```bash
-# cAdvisor endpoint should return Prometheus metrics
-curl -sS http://localhost:8080/metrics | rg "container_cpu_usage_seconds_total|container_memory_working_set_bytes"
-
-# Prometheus should report cadvisor target as up
 curl -sS http://localhost:9090/api/v1/targets | rg cadvisor
-
-# Example ad-hoc PromQL checks (in Prometheus UI)
-# CPU
-sum by (name) (rate(container_cpu_usage_seconds_total{name=~"db|ingestor|api|prometheus|grafana"}[5m]))
-# Memory
-sum by (name) (container_memory_working_set_bytes{name=~"db|ingestor|api|prometheus|grafana"})
 ```
 
 In Grafana (`http://localhost:3000`), open **Shark Bay Operational Monitoring** and confirm these panels show series for `db`, `ingestor`, `api`, `prometheus`, and `grafana`:
