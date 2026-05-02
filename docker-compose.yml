@@ -1,0 +1,31 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: market_data
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d market_data"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  ingestor:
+    build:
+      context: ./app
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/market_data
+      SYMBOL: BTCUSDT
+      POLL_SECONDS: 10
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
