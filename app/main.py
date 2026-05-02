@@ -1,10 +1,40 @@
+import logging
 import os
+import sys
 import time
 from datetime import datetime, timezone
 from decimal import Decimal
 
 
 BINANCE_KLINES_URL = "https://api.binance.com/api/v3/klines"
+
+
+def configure_logging() -> None:
+    logging.basicConfig(
+        level=os.getenv("LOG_LEVEL", "INFO").upper(),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        stream=sys.stdout,
+        force=True,
+    )
+
+
+def sanitized_db_url(db_url: str) -> str:
+    try:
+        from urllib.parse import urlsplit, urlunsplit
+
+        parsed = urlsplit(db_url)
+        if parsed.username is None and parsed.password is None:
+            return db_url
+        netloc = parsed.hostname or ""
+        if parsed.port:
+            netloc = f"{netloc}:{parsed.port}"
+        if parsed.username and parsed.password:
+            netloc = f"{parsed.username}:***@{netloc}"
+        elif parsed.username:
+            netloc = f"{parsed.username}@{netloc}"
+        return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment))
+    except Exception:
+        return "<unparseable DATABASE_URL>"
 
 
 def ms_to_dt(ms: int) -> datetime:
@@ -39,7 +69,7 @@ def parse_kline(symbol: str, k):
     }
 
 
-def upsert_candle(conn, candle):
+def upsert_candle(conn, candle, logger: logging.Logger):
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -60,11 +90,19 @@ def upsert_candle(conn, candle):
                 volume = EXCLUDED.volume,
                 trades = EXCLUDED.trades,
                 taker_buy_base = EXCLUDED.taker_buy_base,
-                taker_buy_quote = EXCLUDED.taker_buy_quote;
+                taker_buy_quote = EXCLUDED.taker_buy_quote
+            RETURNING (xmax = 0) AS inserted;
             """,
             candle,
         )
+        inserted = cur.fetchone()[0]
     conn.commit()
+    logger.info(
+        "Candle %s for %s at %s",
+        "inserted" if inserted else "upserted (duplicate open_time)",
+        candle["symbol"],
+        candle["open_time"].isoformat(),
+    )
 
 
 def init_schema(conn):
@@ -77,24 +115,39 @@ def init_schema(conn):
 
 
 def run():
+    configure_logging()
+    logger = logging.getLogger("ingestor")
+
     db_url = os.environ["DATABASE_URL"]
     poll_seconds = int(os.getenv("POLL_SECONDS", "10"))
     symbol = os.getenv("SYMBOL", "BTCUSDT")
 
+    logger.info(
+        "Starting ingestor with config: symbol=%s interval=1m poll_seconds=%s database_url=%s",
+        symbol,
+        poll_seconds,
+        sanitized_db_url(db_url),
+    )
+    logger.info("Starting REST polling from Binance endpoint=%s", BINANCE_KLINES_URL)
+
     import psycopg
 
-    with psycopg.connect(db_url) as conn:
-        init_schema(conn)
-        while True:
-            try:
-                klines = fetch_latest_klines(symbol=symbol, interval="1m", limit=2)
-                for k in klines:
-                    candle = parse_kline(symbol, k)
-                    upsert_candle(conn, candle)
-                print(f"[{datetime.now(timezone.utc).isoformat()}] Upserted {len(klines)} {symbol} candles")
-            except Exception as exc:
-                print(f"Ingestion error: {exc}")
-            time.sleep(poll_seconds)
+    try:
+        with psycopg.connect(db_url) as conn:
+            logger.info("Database connection established successfully")
+            init_schema(conn)
+            while True:
+                try:
+                    klines = fetch_latest_klines(symbol=symbol, interval="1m", limit=2)
+                    for k in klines:
+                        candle = parse_kline(symbol, k)
+                        upsert_candle(conn, candle, logger)
+                except Exception:
+                    logger.exception("Ingestion error")
+                time.sleep(poll_seconds)
+    except Exception:
+        logger.exception("Failed to connect to database")
+        raise
 
 
 if __name__ == "__main__":
