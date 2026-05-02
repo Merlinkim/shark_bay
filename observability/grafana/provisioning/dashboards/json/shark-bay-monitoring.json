@@ -2,18 +2,232 @@
   "id": null,
   "title": "Shark Bay Operational Monitoring",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "10s",
   "panels": [
-    {"type":"stat","title":"Ingestion health (errors)","gridPos":{"h":4,"w":6,"x":0,"y":0},"targets":[{"expr":"increase(ingest_error_total[5m])"}]},
-    {"type":"stat","title":"Latest candle timestamp","gridPos":{"h":4,"w":6,"x":6,"y":0},"targets":[{"expr":"latest_candle_timestamp"}]},
-    {"type":"timeseries","title":"Candle insert count/rate","gridPos":{"h":8,"w":12,"x":12,"y":0},"targets":[{"expr":"rate(candle_insert_total[5m])"}]},
-    {"type":"timeseries","title":"Duplicate count","gridPos":{"h":8,"w":6,"x":0,"y":4},"targets":[{"expr":"rate(duplicate_candle_total[5m])"}]},
-    {"type":"timeseries","title":"Error count","gridPos":{"h":8,"w":6,"x":6,"y":4},"targets":[{"expr":"rate(ingest_error_total[5m])"}]},
-    {"type":"timeseries","title":"Reconnect count","gridPos":{"h":8,"w":6,"x":0,"y":12},"targets":[{"expr":"rate(websocket_reconnect_total[5m])"}]},
-    {"type":"timeseries","title":"API request count","gridPos":{"h":8,"w":6,"x":6,"y":12},"targets":[{"expr":"rate(api_request_total[5m])"}]},
-    {"type":"timeseries","title":"API latency","gridPos":{"h":8,"w":12,"x":12,"y":8},"targets":[{"expr":"histogram_quantile(0.95, sum(rate(api_request_latency_seconds_bucket[5m])) by (le))"}]},
-    {"type":"stat","title":"DB connection status","gridPos":{"h":4,"w":24,"x":0,"y":20},"targets":[{"expr":"db_connection_status"}]}
+    {
+      "type": "stat",
+      "title": "Ingestion health (errors)",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "increase(ingest_error_total[5m])"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Latest candle timestamp",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "latest_candle_timestamp"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Candle insert count/rate",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "rate(candle_insert_total[5m])"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Duplicate count",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 4
+      },
+      "targets": [
+        {
+          "expr": "rate(duplicate_candle_total[5m])"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Error count",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 4
+      },
+      "targets": [
+        {
+          "expr": "rate(ingest_error_total[5m])"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Reconnect count",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 12
+      },
+      "targets": [
+        {
+          "expr": "rate(websocket_reconnect_total[5m])"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "API request count",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 12
+      },
+      "targets": [
+        {
+          "expr": "rate(api_request_total[5m])"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "API latency",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(api_request_latency_seconds_bucket[5m])) by (le))"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "DB connection status",
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 20
+      },
+      "targets": [
+        {
+          "expr": "db_connection_status"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Container CPU usage (cores)",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{name=~\"db|ingestor|api|prometheus|grafana\"}[5m]))"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Container memory usage (bytes)",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "sum by (name) (container_memory_working_set_bytes{name=~\"db|ingestor|api|prometheus|grafana\"})"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Container restart count",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 32
+      },
+      "targets": [
+        {
+          "expr": "sum by (name) (changes(container_start_time_seconds{name=~\"db|ingestor|api|prometheus|grafana\"}[24h]))"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Container network RX/TX (bytes/s)",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 32
+      },
+      "targets": [
+        {
+          "expr": "sum by (name) (rate(container_network_receive_bytes_total{name=~\"db|ingestor|api|prometheus|grafana\"}[5m]))",
+          "legendFormat": "{{name}} RX"
+        },
+        {
+          "expr": "sum by (name) (rate(container_network_transmit_bytes_total{name=~\"db|ingestor|api|prometheus|grafana\"}[5m]))",
+          "legendFormat": "{{name}} TX"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Container disk I/O (bytes/s)",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 32
+      },
+      "targets": [
+        {
+          "expr": "sum by (name) (rate(container_fs_reads_bytes_total{name=~\"db|ingestor|api|prometheus|grafana\"}[5m]))",
+          "legendFormat": "{{name}} read"
+        },
+        {
+          "expr": "sum by (name) (rate(container_fs_writes_bytes_total{name=~\"db|ingestor|api|prometheus|grafana\"}[5m]))",
+          "legendFormat": "{{name}} write"
+        }
+      ]
+    }
   ],
-  "time": {"from": "now-1h", "to": "now"}
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  }
 }
