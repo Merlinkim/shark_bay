@@ -1,9 +1,19 @@
 import os
 import signal
 import time
+
+from prometheus_client import start_http_server
 from datetime import datetime, timezone
 from decimal import Decimal
 
+from app.metrics import (
+    candle_insert_total,
+    db_connection_status,
+    duplicate_candle_total,
+    ingest_error_total,
+    latest_candle_timestamp,
+    websocket_reconnect_total,
+)
 from app.observability import StructuredLogger, configure_logging
 
 BINANCE_KLINES_URL = "https://api.binance.com/api/v3/klines"
@@ -157,7 +167,9 @@ def run():
     poll_seconds = int(os.getenv("POLL_SECONDS", "10"))
     symbol = os.getenv("SYMBOL", "BTCUSDT")
 
-    logger.info("ingestor_start", symbol=symbol, poll_seconds=poll_seconds, database_url=sanitized_db_url(db_url))
+    metrics_port = int(os.getenv("METRICS_PORT", "9100"))
+    start_http_server(metrics_port)
+    logger.info("ingestor_start", symbol=symbol, poll_seconds=poll_seconds, database_url=sanitized_db_url(db_url), metrics_port=metrics_port)
 
     import psycopg
 
@@ -166,6 +178,7 @@ def run():
             with psycopg.connect(db_url) as conn:
                 init_schema(conn)
                 logger.info("db_connected")
+                db_connection_status.labels(service="ingestor").set(1)
                 while running:
                     metrics.poll_count += 1
                     try:
@@ -173,6 +186,10 @@ def run():
                         for k in klines:
                             candle = parse_kline(symbol, k)
                             inserted = upsert_candle(conn, candle)
+                            candle_insert_total.inc()
+                            if not inserted:
+                                duplicate_candle_total.inc()
+                            latest_candle_timestamp.set(candle["open_time"].timestamp())
                             logger.info("candle_upsert", symbol=symbol, open_time=candle["open_time"], inserted=inserted)
                         metrics.success_count += 1
                         metrics.last_success_at = datetime.now(timezone.utc).isoformat()
@@ -180,12 +197,15 @@ def run():
                     except Exception as exc:
                         metrics.error_count += 1
                         metrics.retry_count += 1
+                        ingest_error_total.inc()
                         logger.exception("ingestion_error", error=str(exc), retry_count=metrics.retry_count)
                     write_heartbeat(conn, symbol, metrics)
                     logger.info("ingestion_metrics", **metrics.__dict__)
                     time.sleep(poll_seconds)
         except Exception as exc:
             metrics.reconnect_count += 1
+            websocket_reconnect_total.inc()
+            db_connection_status.labels(service="ingestor").set(0)
             logger.exception("database_connection_error", error=str(exc), reconnect_count=metrics.reconnect_count)
             time.sleep(3)
 
