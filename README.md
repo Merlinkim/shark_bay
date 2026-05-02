@@ -12,13 +12,14 @@ This repository runs a small market-data platform composed of:
 
 ## Docker Compose Architecture
 
-`docker-compose.yml` defines five services and two persistent volumes:
+`docker-compose.yml` defines six services and two persistent volumes:
 
 - `db` (PostgreSQL 16)
 - `ingestor` (custom Python app image from `./app`)
 - `api` (custom Python app image from `./app`)
 - `prometheus` (Prometheus v2.54.1)
 - `grafana` (Grafana 11.2.2)
+- `cadvisor` (container resource exporter)
 - Volumes:
   - `pgdata` for Postgres data durability
   - `grafana-data` for Grafana state
@@ -32,7 +33,8 @@ This repository runs a small market-data platform composed of:
 5. `prometheus` scrapes:
    - `api:8000/metrics`
    - `ingestor:9100`
-6. `grafana` reads Prometheus (and provisioned datasource config) to show operational dashboards.
+   - `cadvisor:8080/metrics`
+6. `grafana` reads Prometheus (and provisioned datasource config) to show operational dashboards, including container resource panels for `db`, `ingestor`, `api`, `prometheus`, and `grafana`.
 
 ---
 
@@ -71,7 +73,13 @@ This repository runs a small market-data platform composed of:
 - Scrape interval/evaluation interval: `10s`.
 - Scrapes API and ingestor targets configured in `observability/prometheus/prometheus.yml`.
 
-### 5) `grafana` — Visualization
+### 5) `cadvisor` — Container resource exporter
+
+- Exposes CPU, memory, restart, network, and filesystem I/O metrics for running containers.
+- Mounted read-only host paths allow cAdvisor to observe Docker runtime/container stats.
+- Scraped by Prometheus at `cadvisor:8080`.
+
+### 6) `grafana` — Visualization
 
 - Starts with provisioned datasources/dashboards from `observability/grafana/provisioning/...`.
 - Default login from Compose env:
@@ -88,6 +96,7 @@ Host-mapped ports from Compose:
 - `5432` → PostgreSQL
 - `8000` → API (`http://localhost:8000`)
 - `9090` → Prometheus UI (`http://localhost:9090`)
+- `8080` → cAdvisor UI/metrics (`http://localhost:8080`)
 - `9100` → Ingestor metrics exporter (inside Compose network target is `ingestor:9100`; host mapping is not required for Prometheus scraping)
 
 ---
@@ -171,8 +180,33 @@ curl -sS http://localhost:8000/ingestion/status
 
 ```bash
 curl -sS http://localhost:8000/metrics | head
+curl -sS http://localhost:8080/metrics | head
 curl -sS http://localhost:9090/api/v1/targets
 ```
+
+### cAdvisor target and dashboard verification
+
+```bash
+# cAdvisor endpoint should return Prometheus metrics
+curl -sS http://localhost:8080/metrics | rg "container_cpu_usage_seconds_total|container_memory_working_set_bytes"
+
+# Prometheus should report cadvisor target as up
+curl -sS http://localhost:9090/api/v1/targets | rg cadvisor
+
+# Example ad-hoc PromQL checks (in Prometheus UI)
+# CPU
+sum by (name) (rate(container_cpu_usage_seconds_total{name=~"db|ingestor|api|prometheus|grafana"}[5m]))
+# Memory
+sum by (name) (container_memory_working_set_bytes{name=~"db|ingestor|api|prometheus|grafana"})
+```
+
+In Grafana (`http://localhost:3000`), open **Shark Bay Operational Monitoring** and confirm these panels show series for `db`, `ingestor`, `api`, `prometheus`, and `grafana`:
+
+- Container CPU usage (cores)
+- Container memory usage (bytes)
+- Container restart count
+- Container network RX/TX (bytes/s)
+- Container disk I/O (bytes/s)
 
 ### Prometheus / Grafana web UIs
 
