@@ -4,10 +4,12 @@ from decimal import Decimal
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 import psycopg
 from psycopg.rows import dict_row
 
+from app.metrics import api_request_latency_seconds, api_request_total, db_connection_status
 from app.observability import StructuredLogger, configure_logging
 
 configure_logging()
@@ -20,7 +22,10 @@ app = FastAPI(title="Shark Bay API", version="0.2.0")
 async def request_logging_middleware(request: Request, call_next):
     start = time.time()
     response = await call_next(request)
-    duration_ms = round((time.time() - start) * 1000, 2)
+    duration_seconds = time.time() - start
+    duration_ms = round(duration_seconds * 1000, 2)
+    api_request_total.labels(method=request.method, path=request.url.path, status_code=str(response.status_code)).inc()
+    api_request_latency_seconds.labels(method=request.method, path=request.url.path).observe(duration_seconds)
     logger.info(
         "api_request",
         method=request.method,
@@ -56,11 +61,13 @@ def health() -> dict[str, str]:
 def health_ready() -> dict[str, str]:
     try:
         with psycopg.connect(get_db_url()) as conn:
+            db_connection_status.labels(service="api").set(1)
             with conn.cursor() as cur:
                 cur.execute("SELECT 1")
                 cur.fetchone()
         return {"status": "READY"}
     except Exception:
+        db_connection_status.labels(service="api").set(0)
         raise HTTPException(status_code=503, detail="Database unavailable")
 
 
@@ -117,6 +124,11 @@ def ingestion_status():
         collector_status = "running" if age_seconds <= 180 else "stale"
 
     return {"last_candle_time": last_candle_time, "total_candle_count": total_candle_count, "collector_status": collector_status, "heartbeat": hb}
+
+
+@app.get("/metrics")
+def metrics() -> Response:
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.exception_handler(RuntimeError)

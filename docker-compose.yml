@@ -22,6 +22,7 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/market_data
       SYMBOL: BTCUSDT
       POLL_SECONDS: 10
+      METRICS_PORT: 9100
       LOG_LEVEL: INFO
     depends_on:
       db:
@@ -42,5 +43,35 @@ services:
       - "8000:8000"
     restart: unless-stopped
 
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - api
+      - ingestor
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./observability/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./observability/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - db
+    restart: unless-stopped
+
 volumes:
   pgdata:
+  grafana-data:
