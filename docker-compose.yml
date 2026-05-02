@@ -22,9 +22,24 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/market_data
       SYMBOL: BTCUSDT
       POLL_SECONDS: 10
+      LOG_LEVEL: INFO
     depends_on:
       db:
         condition: service_healthy
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./app
+    command: uvicorn api:app --host 0.0.0.0 --port 8000
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/market_data
+      LOG_LEVEL: INFO
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
     restart: unless-stopped
 
 volumes:

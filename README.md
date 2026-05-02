@@ -1,11 +1,12 @@
-# Shark Bay - Milestone 1
+# Shark Bay - Milestone 2
 
-Milestone 1 implements a minimal data-ingestion stack:
+Milestone 2 exposes ingested candle data via a FastAPI service.
+
+## Services
 
 - PostgreSQL database
 - Python ingestor service
-- BTCUSDT 1m candle fetch from Binance public API
-- Insert/upsert into PostgreSQL
+- FastAPI API service
 
 ## Run with Docker Compose
 
@@ -13,45 +14,53 @@ Milestone 1 implements a minimal data-ingestion stack:
 docker compose up --build
 ```
 
-## Verify inserts
+## API endpoints
+
+### Health
 
 ```bash
-docker compose exec db psql -U postgres -d market_data -c "SELECT symbol, open_time, open, high, low, close, volume FROM candles_1m ORDER BY open_time DESC LIMIT 5;"
+curl -s http://localhost:8000/health
 ```
 
-## Observability and logs
+Example response:
 
-The ingestor now writes structured Python logs to stdout/stderr so `docker compose logs` shows runtime activity.
+```json
+{"status":"OK"}
+```
 
-### View ingestor logs
+### Candles
+
+```bash
+curl -s "http://localhost:8000/candles?symbol=BTCUSDT&interval=1m&limit=100"
+```
+
+### Ingestion status
+
+```bash
+curl -s http://localhost:8000/ingestion/status
+```
+
+Expected fields:
+- `last_candle_time`
+- `total_candle_count`
+- `collector_status`
+
+## Logs
+
+View API logs:
+
+```bash
+docker compose logs -f api
+```
+
+View ingestor logs:
 
 ```bash
 docker compose logs -f ingestor
 ```
 
-You should see logs for:
-- Startup configuration (with masked DB password)
-- Database connection success/failure
-- REST polling start
-- Per-candle insert/upsert events
-- Exception traces for failures
-
-### Verify ingestion from logs + DB
-
-1. Confirm recent `inserted` or `upserted` candle log lines:
+## Quick DB check
 
 ```bash
-docker compose logs --tail=100 ingestor
-```
-
-2. Confirm rows are present and updating in PostgreSQL:
-
-```bash
-docker compose exec db psql -U postgres -d market_data -c "SELECT symbol, open_time, close_time, open, high, low, close, volume, trades FROM candles_1m ORDER BY open_time DESC LIMIT 5;"
-```
-
-## Tests
-
-```bash
-python -m unittest discover -s tests -p 'test_*.py'
+docker compose exec db psql -U postgres -d market_data -c "SELECT symbol, open_time, close FROM candles_1m ORDER BY open_time DESC LIMIT 5;"
 ```
