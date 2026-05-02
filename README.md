@@ -1,66 +1,58 @@
-# Shark Bay - Milestone 2
+# Shark Bay - Operational Baseline (Post Milestone 2)
 
-Milestone 2 exposes ingested candle data via a FastAPI service.
+This phase hardens ingestion/API runtime reliability and observability before dashboards/backtesting/paper trading.
 
-## Services
+## What's included
 
-- PostgreSQL database
-- Python ingestor service
-- FastAPI API service
+- Structured JSON logging for API and ingestor.
+- API request logging middleware (method/path/status/duration).
+- Ingestion operational metrics (poll/success/error/retry/reconnect).
+- Collector heartbeat persisted in PostgreSQL.
+- Healthchecks:
+  - API liveness: `GET /health/live`
+  - API readiness: `GET /health/ready` (DB dependency)
+  - existing `GET /health`
+- Graceful shutdown handling for ingestor (SIGTERM/SIGINT).
+- Missing candle detection structure (event table + placeholder detection write).
+- Retry/reconnect tracking metrics surfaced via heartbeat.
+- `.env.example` and helper `Makefile` commands.
 
-## Run with Docker Compose
+## Quick start
 
 ```bash
-docker compose up --build
+cp .env.example .env
+make up
 ```
 
-## API endpoints
-
-### Health
+## Operational endpoints
 
 ```bash
 curl -s http://localhost:8000/health
-```
-
-Example response:
-
-```json
-{"status":"OK"}
-```
-
-### Candles
-
-```bash
-curl -s "http://localhost:8000/candles?symbol=BTCUSDT&interval=1m&limit=100"
-```
-
-### Ingestion status
-
-```bash
+curl -s http://localhost:8000/health/live
+curl -s http://localhost:8000/health/ready
 curl -s http://localhost:8000/ingestion/status
 ```
 
-Expected fields:
-- `last_candle_time`
-- `total_candle_count`
-- `collector_status`
-
 ## Logs
 
-View API logs:
-
 ```bash
-docker compose logs -f api
+make logs-api
+make logs-ingestor
 ```
 
-View ingestor logs:
+Logs are JSON, suitable for ingestion by ELK/Loki/CloudWatch.
+
+## Database operational tables
+
+- `collector_heartbeat`: latest collector heartbeat and counters.
+- `missing_candle_events`: structure for missing candle event records.
+
+## Testing
 
 ```bash
-docker compose logs -f ingestor
+make test
 ```
 
-## Quick DB check
+## Note
 
-```bash
-docker compose exec db psql -U postgres -d market_data -c "SELECT symbol, open_time, close FROM candles_1m ORDER BY open_time DESC LIMIT 5;"
-```
+Dashboard/backtesting/paper trading are intentionally not included in this phase.
