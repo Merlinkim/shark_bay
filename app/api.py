@@ -1,32 +1,40 @@
-import logging
-import os
-import sys
+import time
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 import psycopg
 from psycopg.rows import dict_row
 
-
-def configure_logging() -> None:
-    logging.basicConfig(
-        level=os.getenv("LOG_LEVEL", "INFO").upper(),
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-        stream=sys.stdout,
-        force=True,
-    )
-
+from app.observability import StructuredLogger, configure_logging
 
 configure_logging()
-logger = logging.getLogger("api")
+logger = StructuredLogger("api")
 
-app = FastAPI(title="Shark Bay API", version="0.1.0")
+app = FastAPI(title="Shark Bay API", version="0.2.0")
+
+
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    start = time.time()
+    response = await call_next(request)
+    duration_ms = round((time.time() - start) * 1000, 2)
+    logger.info(
+        "api_request",
+        method=request.method,
+        path=request.url.path,
+        query=str(request.url.query),
+        status_code=response.status_code,
+        duration_ms=duration_ms,
+    )
+    return response
 
 
 def get_db_url() -> str:
+    import os
+
     db_url = os.getenv("DATABASE_URL")
     if not db_url:
         raise RuntimeError("DATABASE_URL is not set")
@@ -41,21 +49,29 @@ def decimal_to_float(v: Any) -> Any:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    logger.info("health check called")
     return {"status": "OK"}
 
 
-@app.get("/candles")
-def get_candles(
-    symbol: str = Query(..., min_length=3, max_length=20, pattern=r"^[A-Z0-9]+$"),
-    interval: str = Query("1m", pattern=r"^(1m)$"),
-    limit: int = Query(100, ge=1, le=1000),
-):
-    logger.info("candles query symbol=%s interval=%s limit=%s", symbol, interval, limit)
-    table = "candles_1m" if interval == "1m" else None
-    if table is None:
-        raise HTTPException(status_code=400, detail="Unsupported interval")
+@app.get("/health/ready")
+def health_ready() -> dict[str, str]:
+    try:
+        with psycopg.connect(get_db_url()) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+                cur.fetchone()
+        return {"status": "READY"}
+    except Exception:
+        raise HTTPException(status_code=503, detail="Database unavailable")
 
+
+@app.get("/health/live")
+def health_live() -> dict[str, str]:
+    return {"status": "LIVE"}
+
+
+@app.get("/candles")
+def get_candles(symbol: str = Query(..., min_length=3, max_length=20, pattern=r"^[A-Z0-9]+$"), interval: str = Query("1m", pattern=r"^(1m)$"), limit: int = Query(100, ge=1, le=1000)):
+    table = "candles_1m"
     try:
         with psycopg.connect(get_db_url(), row_factory=dict_row) as conn:
             with conn.cursor() as cur:
@@ -72,56 +88,38 @@ def get_candles(
                 )
                 rows = cur.fetchall()
     except psycopg.Error:
-        logger.exception("database error fetching candles")
+        logger.exception("database_error_fetching_candles")
         raise HTTPException(status_code=500, detail="Database error")
 
-    candles = []
-    for row in rows:
-        candles.append({k: decimal_to_float(v) for k, v in row.items()})
-
-    return {
-        "symbol": symbol,
-        "interval": interval,
-        "limit": limit,
-        "count": len(candles),
-        "candles": candles,
-    }
+    candles = [{k: decimal_to_float(v) for k, v in row.items()} for row in rows]
+    return {"symbol": symbol, "interval": interval, "limit": limit, "count": len(candles), "candles": candles}
 
 
 @app.get("/ingestion/status")
 def ingestion_status():
-    logger.info("ingestion status called")
     try:
         with psycopg.connect(get_db_url(), row_factory=dict_row) as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT MAX(open_time) AS last_candle_time,
-                           COUNT(*) AS total_candle_count
-                    FROM candles_1m
-                    """
-                )
+                cur.execute("SELECT MAX(open_time) AS last_candle_time, COUNT(*) AS total_candle_count FROM candles_1m")
                 row = cur.fetchone() or {}
+                cur.execute("SELECT * FROM collector_heartbeat WHERE collector_name='ingestor'")
+                hb = cur.fetchone() or {}
     except psycopg.Error:
-        logger.exception("database error fetching ingestion status")
+        logger.exception("database_error_fetching_ingestion_status")
         raise HTTPException(status_code=500, detail="Database error")
 
     last_candle_time = row.get("last_candle_time")
     total_candle_count = int(row.get("total_candle_count") or 0)
 
     collector_status = "unknown"
-    if last_candle_time:
-        age_seconds = (datetime.now(timezone.utc) - last_candle_time).total_seconds()
+    if hb.get("last_heartbeat_at"):
+        age_seconds = (datetime.now(timezone.utc) - hb["last_heartbeat_at"]).total_seconds()
         collector_status = "running" if age_seconds <= 180 else "stale"
 
-    return {
-        "last_candle_time": last_candle_time,
-        "total_candle_count": total_candle_count,
-        "collector_status": collector_status,
-    }
+    return {"last_candle_time": last_candle_time, "total_candle_count": total_candle_count, "collector_status": collector_status, "heartbeat": hb}
 
 
 @app.exception_handler(RuntimeError)
 def runtime_error_handler(_, exc: RuntimeError):
-    logger.exception("runtime error")
+    logger.exception("runtime_error", error=str(exc))
     return JSONResponse(status_code=500, content={"detail": str(exc)})
