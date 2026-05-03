@@ -12,11 +12,12 @@ This repository runs a small market-data platform composed of:
 
 ## Docker Compose Architecture
 
-`docker-compose.yml` defines six services and two persistent volumes:
+`docker-compose.yml` defines seven services and two persistent volumes:
 
 - `db` (PostgreSQL 16)
 - `ingestor` (custom Python app image from `./app`)
 - `api` (custom Python app image from `./app`)
+- `research-ui` (Streamlit backtest research dashboard)
 - `prometheus` (Prometheus v2.54.1)
 - `grafana` (Grafana 11.2.2)
 - `cadvisor` (container resource exporter)
@@ -34,7 +35,8 @@ This repository runs a small market-data platform composed of:
    - `api:8000/metrics`
    - `ingestor:9100`
    - `cadvisor:8080/metrics`
-6. `grafana` reads Prometheus (and provisioned datasource config) to show operational dashboards, including container resource panels for `db`, `ingestor`, `api`, `prometheus`, and `grafana`.
+6. `research-ui` serves a local, read-only dashboard that consumes existing FastAPI backtest endpoints only.
+7. `grafana` reads Prometheus (and provisioned datasource config) to show operational dashboards, including container resource panels for `db`, `ingestor`, `api`, `prometheus`, and `grafana`.
 
 ---
 
@@ -68,18 +70,35 @@ This repository runs a small market-data platform composed of:
   - `GET /metrics`
 - Emits API request count and latency metrics from middleware.
 
-### 4) `prometheus` — Metrics scraper
+### 4) `research-ui` — Streamlit backtest research dashboard
+
+- Purpose: read-only explorer for persisted backtest runs and deterministic backtest outputs.
+- Consumes **only** FastAPI endpoints:
+  - `GET /backtests`
+  - `GET /backtests/{run_id}`
+  - `GET /backtests/{run_id}/fills`
+  - `GET /backtests/{run_id}/equity-curve`
+- Features:
+  - recent run list with key run metadata and summary metrics
+  - selectable run details
+  - equity curve chart
+  - fills/trades table
+  - deterministic metadata cards/fields
+  - loading/error states and optional auto-refresh
+- No strategy execution, async workers, paper/live trading, or portfolio actions are implemented in this UI.
+
+### 5) `prometheus` — Metrics scraper
 
 - Scrape interval/evaluation interval: `10s`.
 - Scrapes API, ingestor, and cAdvisor targets configured in `observability/prometheus/prometheus.yml`.
 
-### 5) `cadvisor` — Container resource exporter
+### 6) `cadvisor` — Container resource exporter
 
 - Exposes CPU, memory, restart, network, and filesystem I/O metrics for running containers.
 - Mounted read-only host paths allow cAdvisor to observe Docker runtime/container stats.
 - Scraped by Prometheus at `cadvisor:8080`.
 
-### 6) `grafana` — Visualization
+### 7) `grafana` — Visualization
 
 - Starts with provisioned datasources/dashboards from `observability/grafana/provisioning/...`.
 - Default login from Compose env:
@@ -95,6 +114,7 @@ Host-mapped ports from Compose:
 - `3000` → Grafana UI (`http://localhost:3000`)
 - `5432` → PostgreSQL
 - `8000` → API (`http://localhost:8000`)
+- `8501` → Backtest Research UI (`http://localhost:8501`)
 - `9090` → Prometheus UI (`http://localhost:9090`)
 - `8080` → cAdvisor UI/metrics (`http://localhost:8080`)
 - `9100` → Ingestor metrics exporter (inside Compose network target is `ingestor:9100`; host mapping is not required for Prometheus scraping)
@@ -170,6 +190,14 @@ curl -sS http://localhost:8000/health/ready
 curl -sS "http://localhost:8000/candles?symbol=BTCUSDT&interval=1m&limit=5"
 ```
 
+
+### Backtest research UI
+
+```bash
+open http://localhost:8501
+```
+
+The Streamlit dashboard is read-only and uses FastAPI backtest endpoints only.
 
 ### Backtest result APIs (read-only)
 
