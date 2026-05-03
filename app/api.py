@@ -2,20 +2,61 @@ import time
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
+from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
+from pydantic import BaseModel
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 import psycopg
 from psycopg.rows import dict_row
 
 from app.metrics import api_request_latency_seconds, api_request_total, db_connection_status
 from app.observability import StructuredLogger, configure_logging
+from app.backtest import BacktestRunRepository
 
 configure_logging()
 logger = StructuredLogger("api")
 
 app = FastAPI(title="Shark Bay API", version="0.2.0")
+
+
+class BacktestRunSummary(BaseModel):
+    run_id: UUID
+    status: str
+    symbol: str
+    interval: str
+    start_time: datetime | None
+    end_time: datetime | None
+    config_hash: str
+    dataset_fingerprint: str
+    created_at: datetime
+
+
+class BacktestRunDetail(BacktestRunSummary):
+    deterministic_summary_timestamp: datetime | None
+    failure_reason: str | None
+    total_return: float | None
+    final_equity: float | None
+    max_drawdown: float | None
+    profit_factor: float | None
+    average_trade_return: float | None
+    trade_count: int | None
+    win_rate: float | None
+
+
+class BacktestFill(BaseModel):
+    fill_index: int
+    open_time: datetime
+    prev_position: int
+    new_position: int
+    exec_price: float
+
+
+class BacktestEquityPoint(BaseModel):
+    point_index: int
+    open_time: datetime
+    equity: float
 
 
 @app.middleware("http")
@@ -129,6 +170,57 @@ def ingestion_status():
 @app.get("/metrics")
 def metrics() -> Response:
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+def _get_backtest_repo() -> BacktestRunRepository:
+    return BacktestRunRepository(get_db_url())
+
+
+@app.get("/backtests", response_model=list[BacktestRunSummary])
+def list_backtests(limit: int = Query(50, ge=1, le=500)):
+    try:
+        return _get_backtest_repo().list_runs(limit=limit)
+    except psycopg.Error:
+        logger.exception("database_error_listing_backtests")
+        raise HTTPException(status_code=500, detail="Database error")
+
+
+@app.get("/backtests/{run_id}", response_model=BacktestRunDetail)
+def get_backtest(run_id: UUID):
+    try:
+        row = _get_backtest_repo().get_run_with_metrics(str(run_id))
+    except psycopg.Error:
+        logger.exception("database_error_getting_backtest", run_id=str(run_id))
+        raise HTTPException(status_code=500, detail="Database error")
+    if row is None:
+        raise HTTPException(status_code=404, detail="Backtest run not found")
+    return row
+
+
+@app.get("/backtests/{run_id}/fills", response_model=list[BacktestFill])
+def get_backtest_fills(run_id: UUID):
+    try:
+        repo = _get_backtest_repo()
+        row = repo.get_run_with_metrics(str(run_id))
+        if row is None:
+            raise HTTPException(status_code=404, detail="Backtest run not found")
+        return repo.get_fills(str(run_id))
+    except psycopg.Error:
+        logger.exception("database_error_getting_backtest_fills", run_id=str(run_id))
+        raise HTTPException(status_code=500, detail="Database error")
+
+
+@app.get("/backtests/{run_id}/equity-curve", response_model=list[BacktestEquityPoint])
+def get_backtest_equity_curve(run_id: UUID):
+    try:
+        repo = _get_backtest_repo()
+        row = repo.get_run_with_metrics(str(run_id))
+        if row is None:
+            raise HTTPException(status_code=404, detail="Backtest run not found")
+        return repo.get_equity_curve(str(run_id))
+    except psycopg.Error:
+        logger.exception("database_error_getting_backtest_equity_curve", run_id=str(run_id))
+        raise HTTPException(status_code=500, detail="Database error")
 
 
 @app.exception_handler(RuntimeError)

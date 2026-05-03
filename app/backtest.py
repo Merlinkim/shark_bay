@@ -388,6 +388,67 @@ class BacktestRunRepository:
                 )
             conn.commit()
 
+    def list_runs(self, limit: int = 50) -> list[dict[str, object]]:
+        with psycopg.connect(self.db_url, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT run_id, status, symbol, interval, start_time, end_time,
+                           config_hash, dataset_fingerprint, created_at
+                    FROM backtest_runs
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                    """,
+                    (limit,),
+                )
+                return cur.fetchall()
+
+    def get_run_with_metrics(self, run_id: str) -> dict[str, object] | None:
+        with psycopg.connect(self.db_url, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT r.run_id, r.status, r.symbol, r.interval, r.start_time, r.end_time,
+                           r.config_hash, r.dataset_fingerprint, r.created_at,
+                           r.deterministic_summary_timestamp, r.failure_reason,
+                           m.total_return, m.final_equity, m.max_drawdown, m.profit_factor,
+                           m.average_trade_return, m.trade_count, m.win_rate
+                    FROM backtest_runs r
+                    LEFT JOIN backtest_metrics m ON m.run_id = r.run_id
+                    WHERE r.run_id = %s
+                    """,
+                    (run_id,),
+                )
+                return cur.fetchone()
+
+    def get_fills(self, run_id: str) -> list[dict[str, object]]:
+        with psycopg.connect(self.db_url, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT fill_index, open_time, prev_position, new_position, exec_price
+                    FROM backtest_fills
+                    WHERE run_id = %s
+                    ORDER BY fill_index ASC
+                    """,
+                    (run_id,),
+                )
+                return cur.fetchall()
+
+    def get_equity_curve(self, run_id: str) -> list[dict[str, object]]:
+        with psycopg.connect(self.db_url, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT point_index, open_time, equity
+                    FROM backtest_equity_curve
+                    WHERE run_id = %s
+                    ORDER BY point_index ASC
+                    """,
+                    (run_id,),
+                )
+                return cur.fetchall()
+
 
 def run_local_backtest(
     symbol: str,
