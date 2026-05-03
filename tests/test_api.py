@@ -73,6 +73,11 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()[0]['point_index'], 0)
 
+    def test_strategy_registry(self):
+        r = self.client.get('/strategies')
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('sma_crossover', r.json()['strategies'])
+
 
 if __name__ == '__main__':
     unittest.main()
