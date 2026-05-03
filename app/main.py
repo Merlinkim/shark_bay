@@ -12,6 +12,11 @@ from app.metrics import (
     duplicate_candle_total,
     ingest_error_total,
     latest_candle_timestamp,
+    missing_candle_gap_count,
+    rest_backfill_candles_inserted_total,
+    rest_backfill_completed_total,
+    rest_backfill_failed_total,
+    rest_backfill_requested_total,
     websocket_reconnect_total,
 )
 from app.observability import StructuredLogger, configure_logging
@@ -27,6 +32,8 @@ class IngestionMetrics:
         self.retry_count = 0
         self.reconnect_count = 0
         self.last_success_at = None
+        self.last_backfill_status = "not_run"
+        self.last_backfill_candle_count = 0
 
 
 def sanitized_db_url(db_url: str) -> str:
@@ -59,6 +66,18 @@ def fetch_latest_klines(symbol: str = "BTCUSDT", interval: str = "1m", limit: in
         BINANCE_KLINES_URL,
         params={"symbol": symbol, "interval": interval, "limit": limit},
         timeout=15,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def fetch_klines_range(symbol: str, interval: str, start_ms: int, end_ms: int, limit: int):
+    import requests
+
+    response = requests.get(
+        BINANCE_KLINES_URL,
+        params={"symbol": symbol, "interval": interval, "startTime": start_ms, "endTime": end_ms, "limit": limit},
+        timeout=20,
     )
     response.raise_for_status()
     return response.json()
@@ -118,18 +137,95 @@ def init_schema(conn):
     conn.commit()
 
 
+def get_latest_stored_open_time(conn, symbol: str):
+    with conn.cursor() as cur:
+        cur.execute("SELECT MAX(open_time) FROM candles_1m WHERE symbol = %s", (symbol,))
+        row = cur.fetchone()
+    return row[0] if row else None
+
+
+def recover_recent_gap(conn, logger, symbol: str, metrics: IngestionMetrics):
+    if os.getenv("ENABLE_GAP_BACKFILL", "true").lower() != "true":
+        metrics.last_backfill_status = "disabled"
+        metrics.last_backfill_candle_count = 0
+        return
+
+    max_candles = int(os.getenv("BACKFILL_MAX_CANDLES_PER_RUN", "500"))
+    sleep_seconds = float(os.getenv("REST_BACKFILL_SLEEP_SECONDS", "0.2"))
+    interval_ms = 60_000
+
+    latest_stored = get_latest_stored_open_time(conn, symbol)
+    latest_closed_kline = fetch_latest_klines(symbol=symbol, interval="1m", limit=2)[-2]
+    latest_closed_open_ms = int(latest_closed_kline[0])
+
+    if latest_stored is None:
+        missing_candle_gap_count.set(0)
+        metrics.last_backfill_status = "skipped_no_local_anchor"
+        metrics.last_backfill_candle_count = 0
+        return
+
+    next_expected_ms = int(latest_stored.timestamp() * 1000) + interval_ms
+    gap_count = max(0, ((latest_closed_open_ms - next_expected_ms) // interval_ms) + 1)
+    missing_candle_gap_count.set(gap_count)
+    if gap_count <= 0:
+        metrics.last_backfill_status = "no_gap"
+        metrics.last_backfill_candle_count = 0
+        return
+
+    logger.info("gap_detected", symbol=symbol, latest_stored_open_time=latest_stored, latest_closed_open_time=ms_to_dt(latest_closed_open_ms), gap_count=gap_count)
+    rest_backfill_requested_total.inc()
+    logger.info("backfill_started", symbol=symbol, gap_count=gap_count, max_candles=max_candles)
+    candles_to_fetch = min(gap_count, max_candles)
+    end_ms = next_expected_ms + (candles_to_fetch - 1) * interval_ms
+    try:
+        klines = fetch_klines_range(symbol, "1m", next_expected_ms, end_ms, candles_to_fetch)
+        logger.info("candles_fetched", symbol=symbol, fetched_count=len(klines))
+        inserted_count = 0
+        for k in klines:
+            candle = parse_kline(symbol, k)
+            inserted = upsert_candle(conn, candle)
+            candle_insert_total.inc()
+            if inserted:
+                inserted_count += 1
+            else:
+                duplicate_candle_total.inc()
+            latest_candle_timestamp.set(candle["open_time"].timestamp())
+        rest_backfill_candles_inserted_total.inc(inserted_count)
+        rest_backfill_completed_total.inc()
+        metrics.last_backfill_status = "completed"
+        metrics.last_backfill_candle_count = inserted_count
+        logger.info("candles_inserted", symbol=symbol, inserted_count=inserted_count)
+        logger.info("backfill_completed", symbol=symbol, inserted_count=inserted_count)
+        time.sleep(sleep_seconds)
+    except Exception as exc:
+        rest_backfill_failed_total.inc()
+        metrics.last_backfill_status = "failed"
+        metrics.last_backfill_candle_count = 0
+        logger.exception("backfill_failed", symbol=symbol, error=str(exc))
+
+
 def write_heartbeat(conn, symbol: str, metrics: IngestionMetrics):
     with conn.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO collector_heartbeat (collector_name, symbol, last_heartbeat_at, poll_count, success_count, error_count, retry_count, reconnect_count)
-            VALUES ('ingestor', %s, NOW(), %s, %s, %s, %s, %s)
+            INSERT INTO collector_heartbeat (collector_name, symbol, last_heartbeat_at, poll_count, success_count, error_count, retry_count, reconnect_count, last_backfill_status, last_backfill_candle_count)
+            VALUES ('ingestor', %s, NOW(), %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (collector_name)
             DO UPDATE SET symbol = EXCLUDED.symbol, last_heartbeat_at = EXCLUDED.last_heartbeat_at,
             poll_count = EXCLUDED.poll_count, success_count = EXCLUDED.success_count,
-            error_count = EXCLUDED.error_count, retry_count = EXCLUDED.retry_count, reconnect_count = EXCLUDED.reconnect_count
+            error_count = EXCLUDED.error_count, retry_count = EXCLUDED.retry_count, reconnect_count = EXCLUDED.reconnect_count,
+            last_backfill_status = EXCLUDED.last_backfill_status, last_backfill_candle_count = EXCLUDED.last_backfill_candle_count
             """,
-            (symbol, metrics.poll_count, metrics.success_count, metrics.error_count, metrics.retry_count, metrics.reconnect_count),
+            (
+                symbol,
+                metrics.poll_count,
+                metrics.success_count,
+                metrics.error_count,
+                metrics.retry_count,
+                metrics.reconnect_count,
+                metrics.last_backfill_status,
+                metrics.last_backfill_candle_count,
+            ),
         )
     conn.commit()
 
@@ -179,6 +275,7 @@ def run():
                 init_schema(conn)
                 logger.info("db_connected")
                 db_connection_status.labels(service="ingestor").set(1)
+                recover_recent_gap(conn, logger, symbol, metrics)
                 while running:
                     metrics.poll_count += 1
                     try:

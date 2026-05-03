@@ -183,7 +183,15 @@ def ingestion_status():
         age_seconds = (datetime.now(timezone.utc) - hb["last_heartbeat_at"]).total_seconds()
         collector_status = "running" if age_seconds <= 180 else "stale"
 
-    return {"last_candle_time": last_candle_time, "total_candle_count": total_candle_count, "collector_status": collector_status, "heartbeat": hb}
+    return {
+        "latest_candle_time": last_candle_time,
+        "last_candle_time": last_candle_time,
+        "total_candle_count": total_candle_count,
+        "collector_status": collector_status,
+        "last_backfill_status": hb.get("last_backfill_status"),
+        "last_backfill_candle_count": hb.get("last_backfill_candle_count"),
+        "heartbeat": hb,
+    }
 
 
 @app.get("/metrics")

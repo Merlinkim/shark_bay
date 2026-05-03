@@ -27,6 +27,10 @@ CREATE TABLE IF NOT EXISTS collector_heartbeat (
   reconnect_count BIGINT NOT NULL DEFAULT 0
 );
 
+ALTER TABLE collector_heartbeat
+  ADD COLUMN IF NOT EXISTS last_backfill_status TEXT,
+  ADD COLUMN IF NOT EXISTS last_backfill_candle_count INTEGER;
+
 CREATE TABLE IF NOT EXISTS missing_candle_events (
   id BIGSERIAL PRIMARY KEY,
   symbol TEXT NOT NULL,
