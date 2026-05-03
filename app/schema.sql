@@ -34,3 +34,54 @@ CREATE TABLE IF NOT EXISTS missing_candle_events (
   detected_at TIMESTAMPTZ NOT NULL,
   reason TEXT NOT NULL
 );
+
+
+CREATE TABLE IF NOT EXISTS backtest_runs (
+  run_id UUID PRIMARY KEY,
+  status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed')),
+  config_hash TEXT NOT NULL,
+  dataset_fingerprint TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  interval TEXT NOT NULL,
+  start_time TIMESTAMPTZ,
+  end_time TIMESTAMPTZ,
+  deterministic_summary_timestamp TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  failure_reason TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_backtest_runs_symbol_interval_created_at ON backtest_runs (symbol, interval, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS backtest_metrics (
+  run_id UUID PRIMARY KEY REFERENCES backtest_runs(run_id) ON DELETE CASCADE,
+  total_return DOUBLE PRECISION NOT NULL,
+  final_equity DOUBLE PRECISION NOT NULL,
+  max_drawdown DOUBLE PRECISION NOT NULL,
+  profit_factor DOUBLE PRECISION NOT NULL,
+  average_trade_return DOUBLE PRECISION NOT NULL,
+  trade_count INTEGER NOT NULL,
+  win_rate DOUBLE PRECISION NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS backtest_equity_curve (
+  run_id UUID NOT NULL REFERENCES backtest_runs(run_id) ON DELETE CASCADE,
+  point_index INTEGER NOT NULL,
+  open_time TIMESTAMPTZ NOT NULL,
+  equity DOUBLE PRECISION NOT NULL,
+  PRIMARY KEY (run_id, point_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_backtest_equity_curve_run_open_time ON backtest_equity_curve (run_id, open_time);
+
+CREATE TABLE IF NOT EXISTS backtest_fills (
+  run_id UUID NOT NULL REFERENCES backtest_runs(run_id) ON DELETE CASCADE,
+  fill_index INTEGER NOT NULL,
+  open_time TIMESTAMPTZ NOT NULL,
+  prev_position INTEGER NOT NULL,
+  new_position INTEGER NOT NULL,
+  exec_price DOUBLE PRECISION NOT NULL,
+  PRIMARY KEY (run_id, fill_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_backtest_fills_run_open_time ON backtest_fills (run_id, open_time);

@@ -5,6 +5,7 @@ import csv
 import hashlib
 import json
 import os
+import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -295,6 +296,99 @@ def persist_backtest_outputs(base_dir: str, symbol: str, interval: str, result: 
     return run_dir
 
 
+class BacktestRunRepository:
+    def __init__(self, db_url: str):
+        self.db_url = db_url
+
+    def create_run(
+        self,
+        symbol: str,
+        interval: str,
+        config_hash: str,
+        dataset_fingerprint: str,
+        start_time: datetime | None,
+        end_time: datetime | None,
+    ) -> str:
+        run_id = str(uuid.uuid4())
+        with psycopg.connect(self.db_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO backtest_runs (
+                        run_id, status, config_hash, dataset_fingerprint, symbol, interval, start_time, end_time
+                    ) VALUES (%s, 'running', %s, %s, %s, %s, %s, %s)
+                    """,
+                    (run_id, config_hash, dataset_fingerprint, symbol, interval, start_time, end_time),
+                )
+            conn.commit()
+        return run_id
+
+    def mark_failed(self, run_id: str, reason: str) -> None:
+        with psycopg.connect(self.db_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE backtest_runs
+                    SET status = 'failed', failure_reason = %s, updated_at = NOW()
+                    WHERE run_id = %s
+                    """,
+                    (reason[:500], run_id),
+                )
+            conn.commit()
+
+    def persist_completed(self, run_id: str, result: BacktestResult) -> None:
+        summary_time = datetime.fromisoformat(result.summary_timestamp)
+        with psycopg.connect(self.db_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE backtest_runs
+                    SET status = 'completed', deterministic_summary_timestamp = %s, updated_at = NOW()
+                    WHERE run_id = %s
+                    """,
+                    (summary_time, run_id),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO backtest_metrics (
+                        run_id, total_return, final_equity, max_drawdown, profit_factor,
+                        average_trade_return, trade_count, win_rate
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        run_id,
+                        result.total_return_pct,
+                        result.final_equity,
+                        result.max_drawdown_pct,
+                        result.profit_factor,
+                        result.average_trade_return_pct,
+                        result.trades,
+                        result.win_rate_pct,
+                    ),
+                )
+                cur.executemany(
+                    """
+                    INSERT INTO backtest_equity_curve (run_id, point_index, open_time, equity)
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    [
+                        (run_id, idx, point.open_time, point.equity)
+                        for idx, point in enumerate(result.equity_curve)
+                    ],
+                )
+                cur.executemany(
+                    """
+                    INSERT INTO backtest_fills (run_id, fill_index, open_time, prev_position, new_position, exec_price)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    [
+                        (run_id, idx, fill.open_time, fill.prev_position, fill.new_position, fill.exec_price)
+                        for idx, fill in enumerate(result.fills)
+                    ],
+                )
+            conn.commit()
+
+
 def run_local_backtest(
     symbol: str,
     interval: str,
@@ -304,7 +398,8 @@ def run_local_backtest(
     output_dir: str,
     start_time: datetime | None = None,
     end_time: datetime | None = None,
-) -> tuple[BacktestResult, Path]:
+    save_results: bool = True,
+) -> tuple[BacktestResult, Path | None, str]:
     db_url = os.environ.get("DATABASE_URL")
     if not db_url:
         raise RuntimeError("DATABASE_URL is not set")
@@ -331,9 +426,23 @@ def run_local_backtest(
     dataset_fingerprint = build_dataset_fingerprint(candles)
     strategy = SmaCrossoverStrategy(short_window=short_window, long_window=long_window)
     engine = SimulatedExecutionModel(initial_cash=10_000.0)
-    result = engine.run(candles, strategy, config_hash=config_hash, dataset_fingerprint=dataset_fingerprint)
-    run_dir = persist_backtest_outputs(output_dir, symbol, interval, result)
-    return result, run_dir
+    run_repo = BacktestRunRepository(db_url)
+    run_id = run_repo.create_run(
+        symbol=symbol,
+        interval=interval,
+        config_hash=config_hash,
+        dataset_fingerprint=dataset_fingerprint.fingerprint,
+        start_time=start_time,
+        end_time=end_time,
+    )
+    try:
+        result = engine.run(candles, strategy, config_hash=config_hash, dataset_fingerprint=dataset_fingerprint)
+        run_dir = persist_backtest_outputs(output_dir, symbol, interval, result) if save_results else None
+        run_repo.persist_completed(run_id, result)
+    except Exception as exc:
+        run_repo.mark_failed(run_id, str(exc))
+        raise
+    return result, run_dir, run_id
 
 
 def main() -> None:
@@ -346,12 +455,13 @@ def main() -> None:
     parser.add_argument("--output-dir", default="backtest_results")
     parser.add_argument("--start-time", default=None, help="Inclusive ISO-8601 UTC lower bound for open_time")
     parser.add_argument("--end-time", default=None, help="Inclusive ISO-8601 UTC upper bound for open_time")
+    parser.add_argument("--save-results", choices=["true", "false"], default="true")
     args = parser.parse_args()
 
     start_time = datetime.fromisoformat(args.start_time) if args.start_time else None
     end_time = datetime.fromisoformat(args.end_time) if args.end_time else None
 
-    result, run_dir = run_local_backtest(
+    result, run_dir, run_id = run_local_backtest(
         symbol=args.symbol,
         interval=args.interval,
         limit=args.limit,
@@ -360,6 +470,7 @@ def main() -> None:
         output_dir=args.output_dir,
         start_time=start_time,
         end_time=end_time,
+        save_results=(args.save_results == "true"),
     )
 
     print("=== Local Backtest Summary ===")
@@ -376,7 +487,8 @@ def main() -> None:
     print(f"Max Drawdown: {result.max_drawdown_pct:.2f}%")
     print(f"Profit Factor: {result.profit_factor:.4f}")
     print(f"Average Trade Return: {result.average_trade_return_pct:.4f}%")
-    print(f"Results Directory: {run_dir}")
+    print(f"Results Directory: {run_dir if run_dir is not None else 'not saved (--save-results false)'}")
+    print(f"Persisted Run ID: {run_id}")
 
 
 if __name__ == "__main__":
