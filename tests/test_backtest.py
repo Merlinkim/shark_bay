@@ -4,9 +4,12 @@ from decimal import Decimal
 from app.backtest import (
     Candle,
     SimulatedExecutionModel,
+    IndicatorLibrary,
     SmaCrossoverStrategy,
     build_config_hash,
     build_dataset_fingerprint,
+    get_strategy_registry_metadata,
+    strategy_registry,
 )
 
 
@@ -62,3 +65,20 @@ def test_dataset_fingerprint_reproducible_for_same_window():
     assert fp_a.row_count == 3
     assert fp_a.min_open_time == candles_a[0].open_time
     assert fp_a.max_open_time == candles_a[-1].open_time
+
+
+def test_indicator_library_basics():
+    values = [Decimal("1"), Decimal("2"), Decimal("3"), Decimal("4"), Decimal("5")]
+    assert IndicatorLibrary.sma(values, 5) == Decimal("3")
+    assert IndicatorLibrary.ema(values, 3) is not None
+    assert IndicatorLibrary.rsi(values, 2) is not None
+    bands = IndicatorLibrary.bollinger_bands(values, 5)
+    assert bands is not None
+
+
+def test_strategy_registry_metadata_and_validation():
+    metadata = get_strategy_registry_metadata()
+    assert "sma_crossover" in metadata
+    validated = strategy_registry.validate_params("sma_crossover", {"short_window": 3, "long_window": 8})
+    assert validated["short_window"] == 3
+    assert validated["long_window"] == 8

@@ -16,7 +16,8 @@ from app.observability import StructuredLogger, configure_logging
 from app.backtest import (
     BacktestRunRepository,
     CandleRepository,
-    STRATEGY_REGISTRY,
+    get_strategy_registry_metadata,
+    strategy_registry,
     SimulatedExecutionModel,
     build_config_hash,
     build_dataset_fingerprint,
@@ -196,7 +197,7 @@ def _get_backtest_repo() -> BacktestRunRepository:
 
 @app.get("/strategies")
 def list_strategies():
-    return {"strategies": STRATEGY_REGISTRY}
+    return {"strategies": get_strategy_registry_metadata()}
 
 
 @app.get("/backtests", response_model=list[BacktestRunSummary])
@@ -248,7 +249,7 @@ def get_backtest_equity_curve(run_id: UUID):
 
 @app.post("/backtests/run")
 def run_backtest(request: BacktestRunRequest):
-    if request.strategy_name not in STRATEGY_REGISTRY:
+    if request.strategy_name not in get_strategy_registry_metadata():
         raise HTTPException(status_code=400, detail="Unknown strategy_name")
     if request.interval != "1m":
         raise HTTPException(status_code=400, detail="Only interval=1m is supported")
@@ -271,7 +272,11 @@ def run_backtest(request: BacktestRunRequest):
         end_time=request.end_time,
     )
     dataset_fingerprint = build_dataset_fingerprint(candles)
-    strategy = build_strategy(request.strategy_name, request.strategy_params)
+    try:
+        validated_params = strategy_registry.validate_params(request.strategy_name, request.strategy_params)
+        strategy = build_strategy(request.strategy_name, validated_params)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     engine = SimulatedExecutionModel(initial_cash=10_000.0)
     repo = BacktestRunRepository(db_url)
     run_id = repo.create_run(

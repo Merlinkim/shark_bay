@@ -39,11 +39,10 @@ if page == "Run Backtest":
     strategy_name = st.selectbox("Strategy", list(strategies.keys()))
     strategy_meta = strategies.get(strategy_name, {})
     strategy_params = {}
+    st.caption(strategy_meta.get("description", "No strategy description available."))
 
-    param_specs = dict(strategy_meta.get("params", {}))
-    if strategy_name in {"sma_cross", "sma_crossover"}:
-        param_specs.setdefault("short_window", {"type": "int", "default": 5, "min": 1, "max": 500})
-        param_specs.setdefault("long_window", {"type": "int", "default": 20, "min": 2, "max": 1000})
+    param_specs = dict(strategy_meta.get("parameter_schema", {}))
+    defaults = dict(strategy_meta.get("default_parameters", {}))
 
     for param_name, spec in param_specs.items():
         if spec.get("type") == "int":
@@ -51,7 +50,7 @@ if page == "Run Backtest":
                 param_name,
                 min_value=int(spec.get("min", 1)),
                 max_value=int(spec.get("max", 10000)),
-                value=int(spec.get("default", 1)),
+                value=int(defaults.get(param_name, spec.get("default", 1))),
                 step=1,
             )
 
