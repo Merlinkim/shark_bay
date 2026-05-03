@@ -20,6 +20,31 @@ websocket_reconnect_total = Counter(
     "Total number of reconnect attempts by ingestor",
 )
 
+rest_backfill_requested_total = Counter(
+    "rest_backfill_requested_total",
+    "Total number of REST gap backfill requests",
+)
+
+rest_backfill_completed_total = Counter(
+    "rest_backfill_completed_total",
+    "Total number of successful REST gap backfills",
+)
+
+rest_backfill_failed_total = Counter(
+    "rest_backfill_failed_total",
+    "Total number of failed REST gap backfills",
+)
+
+rest_backfill_candles_inserted_total = Counter(
+    "rest_backfill_candles_inserted_total",
+    "Total number of candles inserted during REST gap backfills",
+)
+
+missing_candle_gap_count = Gauge(
+    "missing_candle_gap_count",
+    "Current detected number of missing 1m candles in gap recovery",
+)
+
 latest_candle_timestamp = Gauge(
     "latest_candle_timestamp",
     "Unix timestamp of latest candle processed",
