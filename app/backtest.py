@@ -28,15 +28,32 @@ class CandleRepository:
     def __init__(self, db_url: str):
         self.db_url = db_url
 
-    def get_candles(self, symbol: str, interval: str = "1m", limit: int | None = None) -> list[Candle]:
+    def get_candles(
+        self,
+        symbol: str,
+        interval: str = "1m",
+        limit: int | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+    ) -> list[Candle]:
         if interval != "1m":
             raise ValueError("Only 1m candles are supported for M4.1")
 
-        limit_clause = ""
+        where_clauses = ["symbol = %s"]
         params: list[object] = [symbol]
+        if start_time is not None:
+            where_clauses.append("open_time >= %s")
+            params.append(start_time)
+        if end_time is not None:
+            where_clauses.append("open_time <= %s")
+            params.append(end_time)
+
+        limit_clause = ""
         if limit is not None:
             limit_clause = "LIMIT %s"
             params.append(limit)
+
+        where_sql = " AND ".join(where_clauses)
 
         with psycopg.connect(self.db_url, row_factory=dict_row) as conn:
             with conn.cursor() as cur:
@@ -44,7 +61,7 @@ class CandleRepository:
                     f"""
                     SELECT symbol, open_time, close
                     FROM candles_1m
-                    WHERE symbol = %s
+                    WHERE {where_sql}
                     ORDER BY open_time ASC
                     {limit_clause}
                     """,
@@ -106,8 +123,20 @@ class BacktestResult:
     average_trade_return_pct: float
     summary_timestamp: str
     config_hash: str
+    dataset_fingerprint: str
+    dataset_row_count: int
+    dataset_min_open_time: str | None
+    dataset_max_open_time: str | None
     equity_curve: list[EquityPoint]
     fills: list[Fill]
+
+
+@dataclass(frozen=True)
+class DatasetFingerprint:
+    fingerprint: str
+    row_count: int
+    min_open_time: datetime | None
+    max_open_time: datetime | None
 
 
 class SimulatedExecutionModel:
@@ -116,10 +145,32 @@ class SimulatedExecutionModel:
     def __init__(self, initial_cash: float = 10_000.0):
         self.initial_cash = initial_cash
 
-    def run(self, candles: Iterable[Candle], strategy: Strategy, config_hash: str) -> BacktestResult:
+    def run(
+        self,
+        candles: Iterable[Candle],
+        strategy: Strategy,
+        config_hash: str,
+        dataset_fingerprint: DatasetFingerprint,
+    ) -> BacktestResult:
         candle_list = list(candles)
         if len(candle_list) < 2:
-            return BacktestResult(0.0, 0, 0.0, self.initial_cash, 0.0, 0.0, 0.0, "N/A", config_hash, [], [])
+            return BacktestResult(
+                0.0,
+                0,
+                0.0,
+                self.initial_cash,
+                0.0,
+                0.0,
+                0.0,
+                "N/A",
+                config_hash,
+                dataset_fingerprint.fingerprint,
+                dataset_fingerprint.row_count,
+                dataset_fingerprint.min_open_time.isoformat() if dataset_fingerprint.min_open_time else None,
+                dataset_fingerprint.max_open_time.isoformat() if dataset_fingerprint.max_open_time else None,
+                [],
+                [],
+            )
 
         equity = self.initial_cash
         position = 0
@@ -187,6 +238,10 @@ class SimulatedExecutionModel:
             average_trade_return_pct=avg_trade_return_pct,
             summary_timestamp=summary_timestamp,
             config_hash=config_hash,
+            dataset_fingerprint=dataset_fingerprint.fingerprint,
+            dataset_row_count=dataset_fingerprint.row_count,
+            dataset_min_open_time=dataset_fingerprint.min_open_time.isoformat() if dataset_fingerprint.min_open_time else None,
+            dataset_max_open_time=dataset_fingerprint.max_open_time.isoformat() if dataset_fingerprint.max_open_time else None,
             equity_curve=equity_curve,
             fills=fills,
         )
@@ -195,6 +250,23 @@ class SimulatedExecutionModel:
 def build_config_hash(config: dict[str, object]) -> str:
     payload = json.dumps(config, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def build_dataset_fingerprint(candles: list[Candle]) -> DatasetFingerprint:
+    row_count = len(candles)
+    if row_count == 0:
+        payload = "rows=0|min=None|max=None"
+        return DatasetFingerprint(hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16], 0, None, None)
+
+    min_open_time = candles[0].open_time
+    max_open_time = candles[-1].open_time
+    payload = f"rows={row_count}|min={min_open_time.isoformat()}|max={max_open_time.isoformat()}"
+    return DatasetFingerprint(
+        fingerprint=hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16],
+        row_count=row_count,
+        min_open_time=min_open_time,
+        max_open_time=max_open_time,
+    )
 
 
 def persist_backtest_outputs(base_dir: str, symbol: str, interval: str, result: BacktestResult) -> Path:
@@ -223,7 +295,16 @@ def persist_backtest_outputs(base_dir: str, symbol: str, interval: str, result: 
     return run_dir
 
 
-def run_local_backtest(symbol: str, interval: str, limit: int | None, short_window: int, long_window: int, output_dir: str) -> tuple[BacktestResult, Path]:
+def run_local_backtest(
+    symbol: str,
+    interval: str,
+    limit: int | None,
+    short_window: int,
+    long_window: int,
+    output_dir: str,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+) -> tuple[BacktestResult, Path]:
     db_url = os.environ.get("DATABASE_URL")
     if not db_url:
         raise RuntimeError("DATABASE_URL is not set")
@@ -231,18 +312,26 @@ def run_local_backtest(symbol: str, interval: str, limit: int | None, short_wind
     config = {
         "symbol": symbol,
         "interval": interval,
-        "limit": limit,
         "short_window": short_window,
         "long_window": long_window,
         "initial_cash": 10_000.0,
     }
+    if limit is not None:
+        config["limit"] = limit
     config_hash = build_config_hash(config)
 
     repository = CandleRepository(db_url=db_url)
-    candles = repository.get_candles(symbol=symbol, interval=interval, limit=limit)
+    candles = repository.get_candles(
+        symbol=symbol,
+        interval=interval,
+        limit=limit,
+        start_time=start_time,
+        end_time=end_time,
+    )
+    dataset_fingerprint = build_dataset_fingerprint(candles)
     strategy = SmaCrossoverStrategy(short_window=short_window, long_window=long_window)
     engine = SimulatedExecutionModel(initial_cash=10_000.0)
-    result = engine.run(candles, strategy, config_hash=config_hash)
+    result = engine.run(candles, strategy, config_hash=config_hash, dataset_fingerprint=dataset_fingerprint)
     run_dir = persist_backtest_outputs(output_dir, symbol, interval, result)
     return result, run_dir
 
@@ -255,7 +344,12 @@ def main() -> None:
     parser.add_argument("--short-window", type=int, default=5)
     parser.add_argument("--long-window", type=int, default=20)
     parser.add_argument("--output-dir", default="backtest_results")
+    parser.add_argument("--start-time", default=None, help="Inclusive ISO-8601 UTC lower bound for open_time")
+    parser.add_argument("--end-time", default=None, help="Inclusive ISO-8601 UTC upper bound for open_time")
     args = parser.parse_args()
+
+    start_time = datetime.fromisoformat(args.start_time) if args.start_time else None
+    end_time = datetime.fromisoformat(args.end_time) if args.end_time else None
 
     result, run_dir = run_local_backtest(
         symbol=args.symbol,
@@ -264,11 +358,17 @@ def main() -> None:
         short_window=args.short_window,
         long_window=args.long_window,
         output_dir=args.output_dir,
+        start_time=start_time,
+        end_time=end_time,
     )
 
     print("=== Local Backtest Summary ===")
     print(f"Summary Timestamp: {result.summary_timestamp}")
     print(f"Config Hash: {result.config_hash}")
+    print(f"Dataset Fingerprint: {result.dataset_fingerprint}")
+    print(f"Dataset Rows: {result.dataset_row_count}")
+    print(f"Dataset Min Open Time: {result.dataset_min_open_time}")
+    print(f"Dataset Max Open Time: {result.dataset_max_open_time}")
     print(f"Total Return: {result.total_return_pct:.2f}%")
     print(f"Trades: {result.trades}")
     print(f"Win Rate: {result.win_rate_pct:.2f}%")
