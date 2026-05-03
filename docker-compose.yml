@@ -43,6 +43,19 @@ services:
       - "8000:8000"
     restart: unless-stopped
 
+
+  research-ui:
+    build:
+      context: ./dashboard
+    environment:
+      API_BASE_URL: http://api:8000
+      BACKTEST_LIST_LIMIT: 100
+    depends_on:
+      - api
+    ports:
+      - "8501:8501"
+    restart: unless-stopped
+
   prometheus:
     image: prom/prometheus:v2.54.1
     command:
