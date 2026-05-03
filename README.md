@@ -287,3 +287,42 @@ make up
 ```
 
 > Only remove volumes if you intentionally want to delete persisted DB and Grafana state.
+
+## Reproducible Backtests
+
+Run the backtest CLI with a fixed dataset window to freeze the candle set used in replay:
+
+```bash
+python -m app.backtest \
+  --symbol BTCUSDT \
+  --interval 1m \
+  --short-window 5 \
+  --long-window 20 \
+  --start-time 2026-05-01T00:00:00+00:00 \
+  --end-time 2026-05-01T12:00:00+00:00
+```
+
+You can optionally combine a fixed window with `--limit`.
+
+Each run now writes dataset metadata to `summary.json` and terminal output:
+
+- `dataset_fingerprint`
+- `dataset_row_count`
+- `dataset_min_open_time`
+- `dataset_max_open_time`
+
+### Verify two runs are identical for the same window
+
+```bash
+python -m app.backtest --symbol BTCUSDT --interval 1m --start-time 2026-05-01T00:00:00+00:00 --end-time 2026-05-01T12:00:00+00:00
+python -m app.backtest --symbol BTCUSDT --interval 1m --start-time 2026-05-01T00:00:00+00:00 --end-time 2026-05-01T12:00:00+00:00
+```
+
+Compare the output summaries:
+
+```bash
+jq '.config_hash, .dataset_fingerprint, .total_return_pct, .final_equity' <run1>/summary.json
+jq '.config_hash, .dataset_fingerprint, .total_return_pct, .final_equity' <run2>/summary.json
+```
+
+For matching windows and strategy settings, `config_hash` and `dataset_fingerprint` should match, and deterministic metrics should be identical.
