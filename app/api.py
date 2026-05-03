@@ -6,7 +6,7 @@ from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 import psycopg
 from psycopg.rows import dict_row
@@ -67,9 +67,27 @@ class BacktestEquityPoint(BaseModel):
     equity: float
 
 
+
+
+class SmaCrossParams(BaseModel):
+    short_window: int = Field(default=5, ge=1, le=500)
+    long_window: int = Field(default=20, ge=2, le=1000)
+
+    @model_validator(mode="after")
+    def validate_windows(self):
+        if self.short_window >= self.long_window:
+            raise ValueError("short_window must be < long_window")
+        return self
+
+
+STRATEGY_PARAM_MODELS: dict[str, type[BaseModel]] = {
+    "sma_cross": SmaCrossParams,
+}
+
 class BacktestRunRequest(BaseModel):
     strategy_name: str
-    strategy_params: dict[str, Any] = {}
+    model_config = ConfigDict(extra="forbid")
+    strategy_params: dict[str, Any] = Field(default_factory=dict)
     symbol: str
     interval: str = "1m"
     start_time: datetime | None = None
@@ -271,22 +289,35 @@ def run_backtest(request: BacktestRunRequest):
         end_time=request.end_time,
     )
     dataset_fingerprint = build_dataset_fingerprint(candles)
-    strategy = build_strategy(request.strategy_name, request.strategy_params)
+    params_model = STRATEGY_PARAM_MODELS.get(request.strategy_name)
+    if params_model is None:
+        raise HTTPException(status_code=400, detail="No parameter validator configured for strategy")
+    try:
+        validated_params = params_model.model_validate(request.strategy_params).model_dump()
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors())
+
+    strategy = build_strategy(request.strategy_name, validated_params)
     engine = SimulatedExecutionModel(initial_cash=10_000.0)
     repo = BacktestRunRepository(db_url)
-    run_id = repo.create_run(
-        symbol=request.symbol,
-        interval=request.interval,
-        config_hash=config_hash,
-        dataset_fingerprint=dataset_fingerprint.fingerprint,
-        start_time=request.start_time,
-        end_time=request.end_time,
-    )
+
+    run_id = None
+    if request.save_results:
+        run_id = repo.create_run(
+            symbol=request.symbol,
+            interval=request.interval,
+            config_hash=config_hash,
+            dataset_fingerprint=dataset_fingerprint.fingerprint,
+            start_time=request.start_time,
+            end_time=request.end_time,
+        )
     try:
         result = engine.run(candles, strategy, config_hash=config_hash, dataset_fingerprint=dataset_fingerprint)
-        repo.persist_completed(run_id, result)
+        if run_id is not None:
+            repo.persist_completed(run_id, result)
     except Exception as exc:
-        repo.mark_failed(run_id, str(exc))
+        if run_id is not None:
+            repo.mark_failed(run_id, str(exc))
         raise HTTPException(status_code=500, detail=f"Backtest failed: {exc}")
 
     return {

@@ -100,7 +100,7 @@ class SmaCrossoverStrategy:
 
 
 STRATEGY_REGISTRY: dict[str, dict[str, object]] = {
-    "sma_crossover": {
+    "sma_cross": {
         "description": "SMA crossover using short and long lookback windows.",
         "params": {
             "short_window": {"type": "int", "default": 5, "min": 1, "max": 500},
@@ -111,7 +111,7 @@ STRATEGY_REGISTRY: dict[str, dict[str, object]] = {
 
 
 def build_strategy(strategy_name: str, strategy_params: dict[str, object]) -> Strategy:
-    if strategy_name != "sma_crossover":
+    if strategy_name != "sma_cross":
         raise ValueError("Unsupported strategy_name")
     short_window = int(strategy_params.get("short_window", 5))
     long_window = int(strategy_params.get("long_window", 20))
@@ -505,7 +505,7 @@ def run_local_backtest(
     )
     dataset_fingerprint = build_dataset_fingerprint(candles)
     strategy = build_strategy(
-        strategy_name="sma_crossover",
+        strategy_name="sma_cross",
         strategy_params={"short_window": short_window, "long_window": long_window},
     )
     engine = SimulatedExecutionModel(initial_cash=10_000.0)
