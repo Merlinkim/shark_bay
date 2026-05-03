@@ -373,3 +373,51 @@ jq '.config_hash, .dataset_fingerprint, .total_return_pct, .final_equity' <run2>
 ```
 
 For matching windows and strategy settings, `config_hash` and `dataset_fingerprint` should match, and deterministic metrics should be identical.
+
+---
+
+## Strategy Plugin + Indicator Layer
+
+Strategies are now plugin-like classes discovered through the strategy registry in `app/backtest.py`.
+
+### Create a new strategy
+
+1. Add a strategy class with required metadata:
+   - `strategy_name`
+   - `description`
+   - `parameter_schema`
+   - `default_parameters`
+2. Implement `on_candle(self, candle) -> int` and keep logic deterministic and side-effect free.
+3. Reuse indicators from `IndicatorLibrary` (`sma`, `ema`, `rsi`, `atr`, `bollinger_bands`) instead of duplicating math.
+
+### Register a strategy
+
+Register with the global registry:
+
+```python
+strategy_registry.register(MyNewStrategy)
+```
+
+### Expose parameters to UI/API
+
+- The API `/strategies` endpoint returns strategy metadata from the registry.
+- The Streamlit UI auto-builds strategy parameter controls from `parameter_schema` + `default_parameters`.
+- The API `/backtests/run` validates both `strategy_name` and `strategy_params` using the strategy registry before execution.
+
+### Example strategy template
+
+```python
+class MyNewStrategy:
+    strategy_name = "my_new_strategy"
+    description = "Describe strategy behavior"
+    parameter_schema = {
+        "lookback": {"type": "int", "min": 2, "max": 200},
+    }
+    default_parameters = {"lookback": 20}
+
+    def __init__(self, lookback: int = 20):
+        self.lookback = lookback
+
+    def on_candle(self, candle: Candle) -> int:
+        return 0
+```

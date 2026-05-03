@@ -74,11 +74,85 @@ class CandleRepository:
 
 
 class Strategy(Protocol):
+    strategy_name: str
+    description: str
+    parameter_schema: dict[str, dict[str, object]]
+    default_parameters: dict[str, object]
+
     def on_candle(self, candle: Candle) -> int:
         """Return target position: -1 short, 0 flat, +1 long."""
 
 
+class IndicatorLibrary:
+    """Pure deterministic indicator helpers."""
+
+    @staticmethod
+    def sma(values: list[Decimal], window: int) -> Decimal | None:
+        if window <= 0 or len(values) < window:
+            return None
+        return sum(values[-window:]) / Decimal(window)
+
+    @staticmethod
+    def ema(values: list[Decimal], window: int) -> Decimal | None:
+        if window <= 0 or len(values) < window:
+            return None
+        alpha = Decimal(2) / Decimal(window + 1)
+        ema_value = values[0]
+        for value in values[1:]:
+            ema_value = (value * alpha) + (ema_value * (Decimal(1) - alpha))
+        return ema_value
+
+    @staticmethod
+    def rsi(values: list[Decimal], window: int = 14) -> Decimal | None:
+        if window <= 0 or len(values) < window + 1:
+            return None
+        gains = Decimal(0)
+        losses = Decimal(0)
+        for i in range(-window, 0):
+            change = values[i] - values[i - 1]
+            if change > 0:
+                gains += change
+            elif change < 0:
+                losses += abs(change)
+        if losses == 0:
+            return Decimal(100)
+        rs = (gains / Decimal(window)) / (losses / Decimal(window))
+        return Decimal(100) - (Decimal(100) / (Decimal(1) + rs))
+
+    @staticmethod
+    def atr(highs: list[Decimal], lows: list[Decimal], closes: list[Decimal], window: int = 14) -> Decimal | None:
+        if window <= 0 or len(closes) < window + 1 or len(highs) != len(lows) or len(lows) != len(closes):
+            return None
+        true_ranges: list[Decimal] = []
+        for i in range(1, len(closes)):
+            tr = max(highs[i] - lows[i], abs(highs[i] - closes[i - 1]), abs(lows[i] - closes[i - 1]))
+            true_ranges.append(tr)
+        if len(true_ranges) < window:
+            return None
+        return sum(true_ranges[-window:]) / Decimal(window)
+
+    @staticmethod
+    def bollinger_bands(values: list[Decimal], window: int = 20, num_stddev: Decimal = Decimal(2)) -> tuple[Decimal, Decimal, Decimal] | None:
+        mean = IndicatorLibrary.sma(values, window)
+        if mean is None:
+            return None
+        sample = values[-window:]
+        variance = sum((v - mean) ** 2 for v in sample) / Decimal(window)
+        stddev = variance.sqrt()
+        upper = mean + num_stddev * stddev
+        lower = mean - num_stddev * stddev
+        return lower, mean, upper
+
+
 class SmaCrossoverStrategy:
+    strategy_name = "sma_crossover"
+    description = "SMA crossover using short and long lookback windows."
+    parameter_schema = {
+        "short_window": {"type": "int", "min": 1, "max": 500},
+        "long_window": {"type": "int", "min": 2, "max": 1000},
+    }
+    default_parameters = {"short_window": 5, "long_window": 20}
+
     def __init__(self, short_window: int = 5, long_window: int = 20):
         if short_window >= long_window:
             raise ValueError("short_window must be < long_window")
@@ -88,10 +162,10 @@ class SmaCrossoverStrategy:
 
     def on_candle(self, candle: Candle) -> int:
         self.closes.append(candle.close)
-        if len(self.closes) < self.long_window:
+        short_sma = IndicatorLibrary.sma(self.closes, self.short_window)
+        long_sma = IndicatorLibrary.sma(self.closes, self.long_window)
+        if short_sma is None or long_sma is None:
             return 0
-        short_sma = sum(self.closes[-self.short_window :]) / Decimal(self.short_window)
-        long_sma = sum(self.closes[-self.long_window :]) / Decimal(self.long_window)
         if short_sma > long_sma:
             return 1
         if short_sma < long_sma:
@@ -99,25 +173,65 @@ class SmaCrossoverStrategy:
         return 0
 
 
-STRATEGY_REGISTRY: dict[str, dict[str, object]] = {
-    "sma_crossover": {
-        "description": "SMA crossover using short and long lookback windows.",
-        "params": {
-            "short_window": {"type": "int", "default": 5, "min": 1, "max": 500},
-            "long_window": {"type": "int", "default": 20, "min": 2, "max": 1000},
-        },
-    }
-}
+class StrategyRegistry:
+    def __init__(self):
+        self._strategies: dict[str, type[SmaCrossoverStrategy]] = {}
+
+    def register(self, strategy_cls):
+        self._strategies[strategy_cls.strategy_name] = strategy_cls
+        return strategy_cls
+
+    def list_metadata(self) -> dict[str, dict[str, object]]:
+        out: dict[str, dict[str, object]] = {}
+        for name, cls in self._strategies.items():
+            out[name] = {
+                "strategy_name": name,
+                "description": cls.description,
+                "parameter_schema": cls.parameter_schema,
+                "default_parameters": cls.default_parameters,
+            }
+        return out
+
+    def validate_params(self, strategy_name: str, strategy_params: dict[str, object]) -> dict[str, object]:
+        cls = self._strategies.get(strategy_name)
+        if cls is None:
+            raise ValueError("Unknown strategy_name")
+        merged = dict(cls.default_parameters)
+        merged.update(strategy_params)
+        for key, spec in cls.parameter_schema.items():
+            if key not in merged:
+                raise ValueError(f"Missing strategy parameter: {key}")
+            value = merged[key]
+            if spec.get("type") == "int":
+                try:
+                    value = int(value)
+                except (TypeError, ValueError):
+                    raise ValueError(f"Invalid int parameter: {key}")
+                if "min" in spec and value < int(spec["min"]):
+                    raise ValueError(f"Parameter {key} below minimum")
+                if "max" in spec and value > int(spec["max"]):
+                    raise ValueError(f"Parameter {key} above maximum")
+            merged[key] = value
+        return merged
+
+    def build(self, strategy_name: str, strategy_params: dict[str, object]) -> Strategy:
+        cls = self._strategies.get(strategy_name)
+        if cls is None:
+            raise ValueError("Unknown strategy_name")
+        params = self.validate_params(strategy_name, strategy_params)
+        return cls(**params)
+
+
+strategy_registry = StrategyRegistry()
+strategy_registry.register(SmaCrossoverStrategy)
 
 
 def build_strategy(strategy_name: str, strategy_params: dict[str, object]) -> Strategy:
-    if strategy_name != "sma_crossover":
-        raise ValueError("Unsupported strategy_name")
-    short_window = int(strategy_params.get("short_window", 5))
-    long_window = int(strategy_params.get("long_window", 20))
-    return SmaCrossoverStrategy(short_window=short_window, long_window=long_window)
+    return strategy_registry.build(strategy_name, strategy_params)
 
 
+def get_strategy_registry_metadata() -> dict[str, dict[str, object]]:
+    return strategy_registry.list_metadata()
 @dataclass(frozen=True)
 class EquityPoint:
     open_time: datetime
