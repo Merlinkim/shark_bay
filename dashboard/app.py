@@ -39,7 +39,13 @@ if page == "Run Backtest":
     strategy_name = st.selectbox("Strategy", list(strategies.keys()))
     strategy_meta = strategies.get(strategy_name, {})
     strategy_params = {}
-    for param_name, spec in strategy_meta.get("params", {}).items():
+
+    param_specs = dict(strategy_meta.get("params", {}))
+    if strategy_name in {"sma_cross", "sma_crossover"}:
+        param_specs.setdefault("short_window", {"type": "int", "default": 5, "min": 1, "max": 500})
+        param_specs.setdefault("long_window", {"type": "int", "default": 20, "min": 2, "max": 1000})
+
+    for param_name, spec in param_specs.items():
         if spec.get("type") == "int":
             strategy_params[param_name] = st.number_input(
                 param_name,
@@ -133,3 +139,30 @@ else:
         runs_df = pd.DataFrame(run_details)
 
     st.dataframe(runs_df, use_container_width=True, hide_index=True)
+
+    st.subheader("Compare Saved Runs")
+    run_options = runs_df["run_id"].astype(str).tolist() if "run_id" in runs_df.columns else []
+    selected_run_ids = st.multiselect(
+        "Select runs to compare",
+        options=run_options,
+        default=run_options[: min(2, len(run_options))],
+    )
+
+    if selected_run_ids:
+        selected_df = runs_df[runs_df["run_id"].astype(str).isin(selected_run_ids)].copy()
+        comparison_columns = [
+            "run_id",
+            "strategy_name",
+            "config_hash",
+            "dataset_fingerprint",
+            "total_return",
+            "final_equity",
+            "max_drawdown",
+            "profit_factor",
+            "trade_count",
+            "win_rate",
+        ]
+        for col in comparison_columns:
+            if col not in selected_df.columns:
+                selected_df[col] = None
+        st.table(selected_df[comparison_columns].sort_values("run_id"))
