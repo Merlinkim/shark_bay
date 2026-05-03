@@ -13,7 +13,15 @@ from psycopg.rows import dict_row
 
 from app.metrics import api_request_latency_seconds, api_request_total, db_connection_status
 from app.observability import StructuredLogger, configure_logging
-from app.backtest import BacktestRunRepository
+from app.backtest import (
+    BacktestRunRepository,
+    CandleRepository,
+    STRATEGY_REGISTRY,
+    SimulatedExecutionModel,
+    build_config_hash,
+    build_dataset_fingerprint,
+    build_strategy,
+)
 
 configure_logging()
 logger = StructuredLogger("api")
@@ -57,6 +65,16 @@ class BacktestEquityPoint(BaseModel):
     point_index: int
     open_time: datetime
     equity: float
+
+
+class BacktestRunRequest(BaseModel):
+    strategy_name: str
+    strategy_params: dict[str, Any] = {}
+    symbol: str
+    interval: str = "1m"
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+    save_results: bool = True
 
 
 @app.middleware("http")
@@ -176,6 +194,11 @@ def _get_backtest_repo() -> BacktestRunRepository:
     return BacktestRunRepository(get_db_url())
 
 
+@app.get("/strategies")
+def list_strategies():
+    return {"strategies": STRATEGY_REGISTRY}
+
+
 @app.get("/backtests", response_model=list[BacktestRunSummary])
 def list_backtests(limit: int = Query(50, ge=1, le=500)):
     try:
@@ -221,6 +244,65 @@ def get_backtest_equity_curve(run_id: UUID):
     except psycopg.Error:
         logger.exception("database_error_getting_backtest_equity_curve", run_id=str(run_id))
         raise HTTPException(status_code=500, detail="Database error")
+
+
+@app.post("/backtests/run")
+def run_backtest(request: BacktestRunRequest):
+    if request.strategy_name not in STRATEGY_REGISTRY:
+        raise HTTPException(status_code=400, detail="Unknown strategy_name")
+    if request.interval != "1m":
+        raise HTTPException(status_code=400, detail="Only interval=1m is supported")
+
+    config = {
+        "strategy_name": request.strategy_name,
+        "strategy_params": request.strategy_params,
+        "symbol": request.symbol,
+        "interval": request.interval,
+        "start_time": request.start_time.isoformat() if request.start_time else None,
+        "end_time": request.end_time.isoformat() if request.end_time else None,
+        "initial_cash": 10_000.0,
+    }
+    config_hash = build_config_hash(config)
+    db_url = get_db_url()
+    candles = CandleRepository(db_url).get_candles(
+        symbol=request.symbol,
+        interval=request.interval,
+        start_time=request.start_time,
+        end_time=request.end_time,
+    )
+    dataset_fingerprint = build_dataset_fingerprint(candles)
+    strategy = build_strategy(request.strategy_name, request.strategy_params)
+    engine = SimulatedExecutionModel(initial_cash=10_000.0)
+    repo = BacktestRunRepository(db_url)
+    run_id = repo.create_run(
+        symbol=request.symbol,
+        interval=request.interval,
+        config_hash=config_hash,
+        dataset_fingerprint=dataset_fingerprint.fingerprint,
+        start_time=request.start_time,
+        end_time=request.end_time,
+    )
+    try:
+        result = engine.run(candles, strategy, config_hash=config_hash, dataset_fingerprint=dataset_fingerprint)
+        repo.persist_completed(run_id, result)
+    except Exception as exc:
+        repo.mark_failed(run_id, str(exc))
+        raise HTTPException(status_code=500, detail=f"Backtest failed: {exc}")
+
+    return {
+        "run_id": run_id,
+        "config_hash": result.config_hash,
+        "dataset_fingerprint": result.dataset_fingerprint,
+        "summary_metrics": {
+            "total_return": result.total_return_pct,
+            "final_equity": result.final_equity,
+            "max_drawdown": result.max_drawdown_pct,
+            "profit_factor": result.profit_factor,
+            "average_trade_return": result.average_trade_return_pct,
+            "trade_count": result.trades,
+            "win_rate": result.win_rate_pct,
+        },
+    }
 
 
 @app.exception_handler(RuntimeError)

@@ -99,6 +99,25 @@ class SmaCrossoverStrategy:
         return 0
 
 
+STRATEGY_REGISTRY: dict[str, dict[str, object]] = {
+    "sma_crossover": {
+        "description": "SMA crossover using short and long lookback windows.",
+        "params": {
+            "short_window": {"type": "int", "default": 5, "min": 1, "max": 500},
+            "long_window": {"type": "int", "default": 20, "min": 2, "max": 1000},
+        },
+    }
+}
+
+
+def build_strategy(strategy_name: str, strategy_params: dict[str, object]) -> Strategy:
+    if strategy_name != "sma_crossover":
+        raise ValueError("Unsupported strategy_name")
+    short_window = int(strategy_params.get("short_window", 5))
+    long_window = int(strategy_params.get("long_window", 20))
+    return SmaCrossoverStrategy(short_window=short_window, long_window=long_window)
+
+
 @dataclass(frozen=True)
 class EquityPoint:
     open_time: datetime
@@ -485,7 +504,10 @@ def run_local_backtest(
         end_time=end_time,
     )
     dataset_fingerprint = build_dataset_fingerprint(candles)
-    strategy = SmaCrossoverStrategy(short_window=short_window, long_window=long_window)
+    strategy = build_strategy(
+        strategy_name="sma_crossover",
+        strategy_params={"short_window": short_window, "long_window": long_window},
+    )
     engine = SimulatedExecutionModel(initial_cash=10_000.0)
     run_repo = BacktestRunRepository(db_url)
     run_id = run_repo.create_run(
