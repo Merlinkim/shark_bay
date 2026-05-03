@@ -166,3 +166,32 @@ else:
             if col not in selected_df.columns:
                 selected_df[col] = None
         st.table(selected_df[comparison_columns].sort_values("run_id"))
+
+        focus_run_id = selected_run_ids[0]
+        st.subheader(f"Run Details: {focus_run_id}")
+        try:
+            run_detail = fetch_json(f"/backtests/{focus_run_id}")
+            fills = fetch_json(f"/backtests/{focus_run_id}/fills")
+            equity_curve = fetch_json(f"/backtests/{focus_run_id}/equity-curve")
+        except requests.RequestException as exc:
+            st.error(f"Failed to load selected run details: {exc}")
+        else:
+            metric_cols = st.columns(6)
+            metric_cols[0].metric("Total Return", f"{(run_detail.get('total_return') or 0):.4f}")
+            metric_cols[1].metric("Final Equity", f"{(run_detail.get('final_equity') or 0):.2f}")
+            metric_cols[2].metric("Max Drawdown", f"{(run_detail.get('max_drawdown') or 0):.4f}")
+            metric_cols[3].metric("Profit Factor", f"{(run_detail.get('profit_factor') or 0):.4f}")
+            metric_cols[4].metric("Trade Count", str(run_detail.get("trade_count") or 0))
+            metric_cols[5].metric("Win Rate", f"{(run_detail.get('win_rate') or 0):.2%}")
+
+            st.text_input("Config Hash", value=run_detail.get("config_hash", ""), disabled=True)
+            st.text_input("Dataset Fingerprint", value=run_detail.get("dataset_fingerprint", ""), disabled=True)
+
+            if equity_curve:
+                equity_df = pd.DataFrame(equity_curve)
+                equity_df["open_time"] = pd.to_datetime(equity_df["open_time"], errors="coerce")
+                fig = px.line(equity_df, x="open_time", y="equity", title="Equity Over Time")
+                st.plotly_chart(fig, use_container_width=True)
+
+            if fills:
+                st.dataframe(pd.DataFrame(fills), use_container_width=True, hide_index=True)
