@@ -170,6 +170,25 @@ curl -sS http://localhost:8000/health/ready
 curl -sS "http://localhost:8000/candles?symbol=BTCUSDT&interval=1m&limit=5"
 ```
 
+
+### Backtest result APIs (read-only)
+
+```bash
+curl -sS "http://localhost:8000/backtests"
+```
+
+```bash
+curl -sS "http://localhost:8000/backtests/<run_id>"
+```
+
+```bash
+curl -sS "http://localhost:8000/backtests/<run_id>/fills"
+```
+
+```bash
+curl -sS "http://localhost:8000/backtests/<run_id>/equity-curve"
+```
+
 ### Ingestion status
 
 ```bash
