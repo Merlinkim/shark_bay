@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS collector_heartbeat (
 
 ALTER TABLE collector_heartbeat
   ADD COLUMN IF NOT EXISTS last_backfill_status TEXT,
-  ADD COLUMN IF NOT EXISTS last_backfill_candle_count INTEGER;
+  ADD COLUMN IF NOT EXISTS last_backfill_candle_count INTEGER,
+  ADD COLUMN IF NOT EXISTS last_backfill_time TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS missing_candle_events (
   id BIGSERIAL PRIMARY KEY,
@@ -37,6 +38,18 @@ CREATE TABLE IF NOT EXISTS missing_candle_events (
   expected_open_time TIMESTAMPTZ NOT NULL,
   detected_at TIMESTAMPTZ NOT NULL,
   reason TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS rest_backfill_events (
+  id BIGSERIAL PRIMARY KEY,
+  symbol TEXT NOT NULL,
+  interval TEXT NOT NULL,
+  missing_start_time TIMESTAMPTZ NOT NULL,
+  missing_end_time TIMESTAMPTZ NOT NULL,
+  recovered_count INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL,
+  error_message TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 
