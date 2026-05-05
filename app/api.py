@@ -194,6 +194,7 @@ def ingestion_status():
         "collector_status": collector_status,
         "last_backfill_status": hb.get("last_backfill_status"),
         "last_backfill_candle_count": hb.get("last_backfill_candle_count"),
+        "last_backfill_time": hb.get("last_backfill_time"),
         "heartbeat": hb,
     }
 

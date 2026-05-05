@@ -58,6 +58,17 @@ This repository runs a small market-data platform composed of:
 - Tracks collector heartbeat and placeholder missing-candle event logic.
 - Exposes Prometheus metrics via `start_http_server` on `METRICS_PORT` (default `9100`).
 - Handles SIGTERM/SIGINT for graceful stop.
+- On startup, runs **safe forward gap recovery** for `BTCUSDT` `1m` only:
+  - compares latest stored candle vs latest closed Binance 1m candle
+  - fetches only missing forward range with REST klines
+  - upserts recovered candles using `symbol + open_time` key (idempotent)
+  - bounded by `BACKFILL_MAX_CANDLES_PER_RUN`
+
+#### Gap recovery safety controls
+
+- `ENABLE_GAP_BACKFILL=true` (default)
+- `BACKFILL_MAX_CANDLES_PER_RUN=500` (default)
+- `REST_BACKFILL_SLEEP_SECONDS=0.2` (default)
 
 ### 3) `api` — FastAPI data + health + metrics
 
@@ -129,6 +140,10 @@ Implemented metrics (from `app/metrics.py`):
 - `duplicate_candle_total` (Counter)
 - `ingest_error_total` (Counter)
 - `websocket_reconnect_total` (Counter)
+- `rest_backfill_requested_total` (Counter)
+- `rest_backfill_completed_total` (Counter)
+- `rest_backfill_failed_total` (Counter)
+- `rest_backfill_candles_inserted_total` (Counter)
 - `latest_candle_timestamp` (Gauge)
 - `db_connection_status{service="..."}` (Gauge)
 - `api_request_total{method,path,status_code}` (Counter)
@@ -242,6 +257,11 @@ Expected JSON output fields:
 ```bash
 curl -sS http://localhost:8000/ingestion/status
 ```
+
+Includes:
+- `last_backfill_status`
+- `last_backfill_candle_count`
+- `last_backfill_time`
 
 ### Metrics checks
 

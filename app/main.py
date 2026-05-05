@@ -34,6 +34,7 @@ class IngestionMetrics:
         self.last_success_at = None
         self.last_backfill_status = "not_run"
         self.last_backfill_candle_count = 0
+        self.last_backfill_time = None
 
 
 def sanitized_db_url(db_url: str) -> str:
@@ -148,6 +149,7 @@ def recover_recent_gap(conn, logger, symbol: str, metrics: IngestionMetrics):
     if os.getenv("ENABLE_GAP_BACKFILL", "true").lower() != "true":
         metrics.last_backfill_status = "disabled"
         metrics.last_backfill_candle_count = 0
+        metrics.last_backfill_time = datetime.now(timezone.utc)
         return
 
     max_candles = int(os.getenv("BACKFILL_MAX_CANDLES_PER_RUN", "500"))
@@ -162,6 +164,7 @@ def recover_recent_gap(conn, logger, symbol: str, metrics: IngestionMetrics):
         missing_candle_gap_count.set(0)
         metrics.last_backfill_status = "skipped_no_local_anchor"
         metrics.last_backfill_candle_count = 0
+        metrics.last_backfill_time = datetime.now(timezone.utc)
         return
 
     next_expected_ms = int(latest_stored.timestamp() * 1000) + interval_ms
@@ -170,6 +173,7 @@ def recover_recent_gap(conn, logger, symbol: str, metrics: IngestionMetrics):
     if gap_count <= 0:
         metrics.last_backfill_status = "no_gap"
         metrics.last_backfill_candle_count = 0
+        metrics.last_backfill_time = datetime.now(timezone.utc)
         return
 
     logger.info("gap_detected", symbol=symbol, latest_stored_open_time=latest_stored, latest_closed_open_time=ms_to_dt(latest_closed_open_ms), gap_count=gap_count)
@@ -178,6 +182,8 @@ def recover_recent_gap(conn, logger, symbol: str, metrics: IngestionMetrics):
     candles_to_fetch = min(gap_count, max_candles)
     end_ms = next_expected_ms + (candles_to_fetch - 1) * interval_ms
     try:
+        missing_start_time = ms_to_dt(next_expected_ms)
+        missing_end_time = ms_to_dt(end_ms)
         klines = fetch_klines_range(symbol, "1m", next_expected_ms, end_ms, candles_to_fetch)
         logger.info("candles_fetched", symbol=symbol, fetched_count=len(klines))
         inserted_count = 0
@@ -194,6 +200,18 @@ def recover_recent_gap(conn, logger, symbol: str, metrics: IngestionMetrics):
         rest_backfill_completed_total.inc()
         metrics.last_backfill_status = "completed"
         metrics.last_backfill_candle_count = inserted_count
+        metrics.last_backfill_time = datetime.now(timezone.utc)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO rest_backfill_events (
+                    symbol, interval, missing_start_time, missing_end_time,
+                    recovered_count, status, error_message
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (symbol, "1m", missing_start_time, missing_end_time, inserted_count, "completed", None),
+            )
+        conn.commit()
         logger.info("candles_inserted", symbol=symbol, inserted_count=inserted_count)
         logger.info("backfill_completed", symbol=symbol, inserted_count=inserted_count)
         time.sleep(sleep_seconds)
@@ -201,6 +219,18 @@ def recover_recent_gap(conn, logger, symbol: str, metrics: IngestionMetrics):
         rest_backfill_failed_total.inc()
         metrics.last_backfill_status = "failed"
         metrics.last_backfill_candle_count = 0
+        metrics.last_backfill_time = datetime.now(timezone.utc)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO rest_backfill_events (
+                    symbol, interval, missing_start_time, missing_end_time,
+                    recovered_count, status, error_message
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (symbol, "1m", ms_to_dt(next_expected_ms), ms_to_dt(end_ms), 0, "failed", str(exc)),
+            )
+        conn.commit()
         logger.exception("backfill_failed", symbol=symbol, error=str(exc))
 
 
@@ -208,13 +238,14 @@ def write_heartbeat(conn, symbol: str, metrics: IngestionMetrics):
     with conn.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO collector_heartbeat (collector_name, symbol, last_heartbeat_at, poll_count, success_count, error_count, retry_count, reconnect_count, last_backfill_status, last_backfill_candle_count)
-            VALUES ('ingestor', %s, NOW(), %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO collector_heartbeat (collector_name, symbol, last_heartbeat_at, poll_count, success_count, error_count, retry_count, reconnect_count, last_backfill_status, last_backfill_candle_count, last_backfill_time)
+            VALUES ('ingestor', %s, NOW(), %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (collector_name)
             DO UPDATE SET symbol = EXCLUDED.symbol, last_heartbeat_at = EXCLUDED.last_heartbeat_at,
             poll_count = EXCLUDED.poll_count, success_count = EXCLUDED.success_count,
             error_count = EXCLUDED.error_count, retry_count = EXCLUDED.retry_count, reconnect_count = EXCLUDED.reconnect_count,
-            last_backfill_status = EXCLUDED.last_backfill_status, last_backfill_candle_count = EXCLUDED.last_backfill_candle_count
+            last_backfill_status = EXCLUDED.last_backfill_status, last_backfill_candle_count = EXCLUDED.last_backfill_candle_count,
+            last_backfill_time = EXCLUDED.last_backfill_time
             """,
             (
                 symbol,
@@ -225,6 +256,7 @@ def write_heartbeat(conn, symbol: str, metrics: IngestionMetrics):
                 metrics.reconnect_count,
                 metrics.last_backfill_status,
                 metrics.last_backfill_candle_count,
+                metrics.last_backfill_time,
             ),
         )
     conn.commit()

@@ -160,6 +160,35 @@ This guide summarizes the currently available runtime checks and test commands f
 - **Expected result**: JSON report including `total_rows_checked`, `gap_count`, `duplicate_count`, `invalid_ohlc_count`, `invalid_volume_count`, `future_timestamp_count`, `latest_candle_timestamp`, and `data_lag_seconds`.
 - **Failure usually means**: database connectivity issues, empty/recently reset datasets, or candle integrity problems requiring remediation before rollout.
 
+## 15) forward gap recovery (v0.2.2) verification
+
+- **Purpose**: validate startup-time safe forward backfill after ingestor downtime/restart.
+- **Commands**:
+  ```bash
+  # baseline quality snapshot
+  python -m app.data_quality --symbol BTCUSDT --interval 1m --lookback-hours 6
+
+  # stop ingestor and wait to create a recent forward gap
+  docker compose stop ingestor
+  sleep 240
+
+  # restart ingestor
+  docker compose start ingestor
+
+  # inspect startup logs for backfill lifecycle events
+  docker compose logs --since=10m ingestor | rg "gap_detected|backfill_started|candles_fetched|candles_inserted|backfill_completed|backfill_failed"
+
+  # verify ingestion status includes backfill fields
+  curl -sS http://localhost:8000/ingestion/status
+
+  # quality check after recovery
+  python -m app.data_quality --symbol BTCUSDT --interval 1m --lookback-hours 6
+  ```
+- **Expected result**:
+  - logs show backfill events in order (`gap_detected` → `backfill_started` → ... → `backfill_completed`)
+  - `/ingestion/status` returns `last_backfill_status`, `last_backfill_candle_count`, `last_backfill_time`
+  - recent `gap_count` from data quality should decrease vs pre-restart snapshot
+
 ## Notes
 
 - Prefer running `make up` before operational checks and `make logs-api` / `make logs-ingestor` for debugging.
