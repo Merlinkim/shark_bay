@@ -461,3 +461,27 @@ class MyNewStrategy:
     def on_candle(self, candle: Candle) -> int:
         return 0
 ```
+
+## Historical Data Import (v0.2.3)
+
+Use the Binance historical importer to load Binance Vision kline files into PostgreSQL using duplicate-safe upserts.
+
+Example Binance Vision path pattern:
+
+```text
+https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/1m/
+```
+
+Example imports:
+
+```bash
+python -m app.import_binance_klines --file ./BTCUSDT-1m-2026-04.zip --symbol BTCUSDT --interval 1m
+python -m app.import_binance_klines --file ./BTCUSDT-1m-2026-04.csv --symbol BTCUSDT --interval 1m --max-rows 10000
+python -m app.import_binance_klines --file ./BTCUSDT-1m-2026-04.zip --symbol BTCUSDT --interval 1m --dry-run
+```
+
+DB verification query:
+
+```bash
+docker compose exec -T db psql -U postgres -d market_data -c "SELECT symbol, MIN(open_time) AS first_open_time, MAX(open_time) AS last_open_time, COUNT(*) AS rows FROM candles_1m WHERE symbol='BTCUSDT' GROUP BY symbol;"
+```

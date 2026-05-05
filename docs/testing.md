@@ -193,3 +193,21 @@ This guide summarizes the currently available runtime checks and test commands f
 
 - Prefer running `make up` before operational checks and `make logs-api` / `make logs-ingestor` for debugging.
 - For destructive resets, use `make down` and remove volumes only when data loss is acceptable.
+
+## 16) historical Binance Vision import CLI (v0.2.3)
+
+- **Purpose**: validate offline historical kline ingestion from Binance Vision `.csv` / `.zip` files.
+- **Commands**:
+  ```bash
+  python -m app.import_binance_klines --file ./BTCUSDT-1m-2026-04.zip --symbol BTCUSDT --interval 1m --dry-run
+  python -m app.import_binance_klines --file ./BTCUSDT-1m-2026-04.zip --symbol BTCUSDT --interval 1m
+  python -m app.import_binance_klines --file ./BTCUSDT-1m-2026-04.csv --symbol BTCUSDT --interval 1m --max-rows 50000
+  ```
+- **Expected result**:
+  - logs include `import_start`, `validation_summary`, `import_end`
+  - summary includes `rows_read`, `rows_inserted`, `duplicates_skipped_or_upserted`, `invalid_rows_skipped`, `min_open_time`, `max_open_time`
+  - re-running same file remains idempotent through upsert conflict handling
+- **DB verification**:
+  ```bash
+  docker compose exec -T db psql -U postgres -d market_data -c "SELECT symbol, MIN(open_time), MAX(open_time), COUNT(*) FROM candles_1m WHERE symbol='BTCUSDT' GROUP BY symbol;"
+  ```
