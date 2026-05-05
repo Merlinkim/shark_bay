@@ -149,6 +149,17 @@ This guide summarizes the currently available runtime checks and test commands f
 
 ---
 
+
+## 14) data quality validation CLI
+
+- **Purpose**: run read-only candle data quality checks over a lookback window before expanding historical coverage or deploying.
+- **Command**:
+  ```bash
+  python -m app.data_quality --symbol BTCUSDT --interval 1m --lookback-hours 24
+  ```
+- **Expected result**: JSON report including `total_rows_checked`, `gap_count`, `duplicate_count`, `invalid_ohlc_count`, `invalid_volume_count`, `future_timestamp_count`, `latest_candle_timestamp`, and `data_lag_seconds`.
+- **Failure usually means**: database connectivity issues, empty/recently reset datasets, or candle integrity problems requiring remediation before rollout.
+
 ## Notes
 
 - Prefer running `make up` before operational checks and `make logs-api` / `make logs-ingestor` for debugging.

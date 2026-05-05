@@ -217,6 +217,26 @@ curl -sS "http://localhost:8000/backtests/<run_id>/fills"
 curl -sS "http://localhost:8000/backtests/<run_id>/equity-curve"
 ```
 
+
+### Data quality validation (read-only)
+
+Run the candle quality validator for a recent window:
+
+```bash
+python -m app.data_quality --symbol BTCUSDT --interval 1m --lookback-hours 24
+```
+
+Expected JSON output fields:
+
+- `total_rows_checked`
+- `gap_count`
+- `duplicate_count`
+- `invalid_ohlc_count`
+- `invalid_volume_count`
+- `future_timestamp_count`
+- `latest_candle_timestamp`
+- `data_lag_seconds`
+
 ### Ingestion status
 
 ```bash
