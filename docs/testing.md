@@ -211,3 +211,26 @@ This guide summarizes the currently available runtime checks and test commands f
   ```bash
   docker compose exec -T db psql -U postgres -d market_data -c "SELECT symbol, MIN(open_time), MAX(open_time), COUNT(*) FROM candles_1m WHERE symbol='BTCUSDT' GROUP BY symbol;"
   ```
+
+
+## 17) grafana data quality dashboard checks (v0.2.4)
+
+- **Purpose**: verify ingestion/data-quality/backfill observability and threshold coloring in Grafana.
+- **Commands**:
+  ```bash
+  curl -sS http://localhost:8000/metrics | rg "latest_candle_timestamp|missing_candle_gap_count|invalid_ohlc_total|invalid_volume_total|future_timestamp_total|rest_backfill_requested_total|rest_backfill_completed_total|rest_backfill_failed_total|last_backfill_candle_count|websocket_reconnect_total"
+  curl -sS http://localhost:9090/api/v1/query --data-urlencode 'query=time() - latest_candle_timestamp'
+  ```
+- **Grafana checks**:
+  - Open `http://localhost:3000` → **Shark Bay Operational Monitoring**.
+  - Confirm section rows exist: **Ingestion Health**, **Data Quality**, **Backfill Recovery**.
+  - Confirm panel colors: green healthy, yellow warning, red critical.
+- **Expected healthy ranges**:
+  - `Data lag seconds` < 90 (green)
+  - `Recent gap count` = 0 (green)
+  - `Invalid OHLC/volume/future timestamp` 1h counts = 0 (green)
+  - `Backfill failed count (1h)` = 0 (green)
+- **Failure indicators**:
+  - lag panel yellow/red for multiple refreshes
+  - any non-zero future timestamp events
+  - growing backfill failed count or reconnect spikes

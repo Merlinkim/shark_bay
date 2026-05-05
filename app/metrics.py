@@ -50,6 +50,27 @@ latest_candle_timestamp = Gauge(
     "Unix timestamp of latest candle processed",
 )
 
+
+invalid_ohlc_total = Counter(
+    "invalid_ohlc_total",
+    "Total number of candles with invalid OHLC relationships",
+)
+
+invalid_volume_total = Counter(
+    "invalid_volume_total",
+    "Total number of candles with invalid volume values",
+)
+
+future_timestamp_total = Counter(
+    "future_timestamp_total",
+    "Total number of candles observed with future timestamps",
+)
+
+last_backfill_candle_count = Gauge(
+    "last_backfill_candle_count",
+    "Number of candles inserted by the most recent backfill run",
+)
+
 db_connection_status = Gauge(
     "db_connection_status",
     "Database connectivity status (1=up, 0=down)",

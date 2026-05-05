@@ -145,6 +145,10 @@ Implemented metrics (from `app/metrics.py`):
 - `rest_backfill_failed_total` (Counter)
 - `rest_backfill_candles_inserted_total` (Counter)
 - `latest_candle_timestamp` (Gauge)
+- `invalid_ohlc_total` (Counter)
+- `invalid_volume_total` (Counter)
+- `future_timestamp_total` (Counter)
+- `last_backfill_candle_count` (Gauge)
 - `db_connection_status{service="..."}` (Gauge)
 - `api_request_total{method,path,status_code}` (Counter)
 - `api_request_latency_seconds{method,path}` (Histogram)
@@ -485,3 +489,22 @@ DB verification query:
 ```bash
 docker compose exec -T db psql -U postgres -d market_data -c "SELECT symbol, MIN(open_time) AS first_open_time, MAX(open_time) AS last_open_time, COUNT(*) AS rows FROM candles_1m WHERE symbol='BTCUSDT' GROUP BY symbol;"
 ```
+
+
+### Grafana data quality dashboard verification (v0.2.4)
+
+1. Open Grafana (`http://localhost:3000`) and load **Shark Bay Operational Monitoring**.
+2. Validate dashboard sections:
+   - **Ingestion Health**
+   - **Data Quality**
+   - **Backfill Recovery**
+3. Check status colors and expected ranges:
+   - green = healthy, yellow = warning, red = critical
+   - `Data lag seconds`: green < 90, yellow >= 90, red >= 180
+   - `Recent gap count`: green = 0, yellow >= 1, red >= 5
+   - `Invalid OHLC/volume/future timestamp` (1h): green = 0, yellow >= 1, red threshold panel-specific
+   - `Backfill failed count` (1h): green = 0, yellow >= 1, red >= 3
+4. Example failure indicators:
+   - sustained red on `Data lag seconds` with rising `ingest_error_total`
+   - non-zero `Future timestamp count (1h)`
+   - repeated `Websocket reconnect count (1h)` spikes plus failed backfills
