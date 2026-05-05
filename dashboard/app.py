@@ -35,7 +35,11 @@ LIVE_WINDOWS = {
     "7d": 10080,
 }
 
-page = st.sidebar.radio("Page", ["Run Backtest", "Backtest Explorer", "Live Market Chart"])
+page_options = ["Run Backtest", "Backtest Explorer", "Live Market Chart"]
+if "selected_page" not in st.session_state:
+    st.session_state["selected_page"] = page_options[0]
+
+page = st.sidebar.radio("Page", page_options, key="selected_page")
 
 if page == "Run Backtest":
     st.subheader("Run Backtest")
