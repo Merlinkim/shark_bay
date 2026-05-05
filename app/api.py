@@ -137,7 +137,11 @@ def health_live() -> dict[str, str]:
 
 
 @app.get("/candles")
-def get_candles(symbol: str = Query(..., min_length=3, max_length=20, pattern=r"^[A-Z0-9]+$"), interval: str = Query("1m", pattern=r"^(1m)$"), limit: int = Query(100, ge=1, le=1000)):
+def get_candles(
+    symbol: str = Query(..., min_length=3, max_length=20, pattern=r"^[A-Z0-9]+$"),
+    interval: str = Query("1m", pattern=r"^(1m)$"),
+    limit: int = Query(100, ge=1, le=20000),
+):
     table = "candles_1m"
     try:
         with psycopg.connect(get_db_url(), row_factory=dict_row) as conn:
