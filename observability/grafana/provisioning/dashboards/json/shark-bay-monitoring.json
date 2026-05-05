@@ -2,23 +2,18 @@
   "id": null,
   "title": "Shark Bay Operational Monitoring",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "refresh": "10s",
   "panels": [
     {
-      "type": "stat",
-      "title": "Ingestion health (errors)",
+      "type": "row",
+      "title": "Ingestion Health",
       "gridPos": {
-        "h": 4,
-        "w": 6,
+        "h": 1,
+        "w": 24,
         "x": 0,
         "y": 0
-      },
-      "targets": [
-        {
-          "expr": "increase(ingest_error_total[5m])"
-        }
-      ]
+      }
     },
     {
       "type": "stat",
@@ -26,202 +21,499 @@
       "gridPos": {
         "h": 4,
         "w": 6,
-        "x": 6,
-        "y": 0
+        "x": 0,
+        "y": 1
       },
       "targets": [
         {
           "expr": "latest_candle_timestamp"
         }
-      ]
-    },
-    {
-      "type": "timeseries",
-      "title": "Candle insert count/rate",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 0
-      },
-      "targets": [
-        {
-          "expr": "rate(candle_insert_total[5m])"
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeFromNow",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 120
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          }
         }
-      ]
+      }
     },
     {
-      "type": "timeseries",
-      "title": "Duplicate count",
+      "type": "stat",
+      "title": "Data lag seconds",
       "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 0,
-        "y": 4
-      },
-      "targets": [
-        {
-          "expr": "rate(duplicate_candle_total[5m])"
-        }
-      ]
-    },
-    {
-      "type": "timeseries",
-      "title": "Error count",
-      "gridPos": {
-        "h": 8,
+        "h": 4,
         "w": 6,
         "x": 6,
-        "y": 4
+        "y": 1
       },
       "targets": [
         {
-          "expr": "rate(ingest_error_total[5m])"
+          "expr": "time() - latest_candle_timestamp"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 90
+              },
+              {
+                "color": "red",
+                "value": 180
+              }
+            ]
+          }
+        }
+      }
     },
     {
-      "type": "timeseries",
-      "title": "Reconnect count",
+      "type": "stat",
+      "title": "Ingestion errors (5m)",
       "gridPos": {
-        "h": 8,
+        "h": 4,
         "w": 6,
-        "x": 0,
-        "y": 12
-      },
-      "targets": [
-        {
-          "expr": "rate(websocket_reconnect_total[5m])"
-        }
-      ]
-    },
-    {
-      "type": "timeseries",
-      "title": "API request count",
-      "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 6,
-        "y": 12
-      },
-      "targets": [
-        {
-          "expr": "rate(api_request_total[5m])"
-        }
-      ]
-    },
-    {
-      "type": "timeseries",
-      "title": "API latency",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
         "x": 12,
-        "y": 8
+        "y": 1
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(api_request_latency_seconds_bucket[5m])) by (le))"
+          "expr": "increase(ingest_error_total[5m])"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        }
+      }
     },
     {
       "type": "stat",
       "title": "DB connection status",
       "gridPos": {
         "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "targets": [
+        {
+          "expr": "db_connection_status{service=\"ingestor\"}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "row",
+      "title": "Data Quality",
+      "gridPos": {
+        "h": 1,
         "w": 24,
         "x": 0,
-        "y": 20
-      },
-      "targets": [
-        {
-          "expr": "db_connection_status"
-        }
-      ]
+        "y": 5
+      }
     },
     {
-      "type": "timeseries",
-      "title": "Container CPU usage (cores)",
+      "type": "stat",
+      "title": "Recent gap count",
       "gridPos": {
-        "h": 8,
-        "w": 12,
+        "h": 4,
+        "w": 4,
         "x": 0,
-        "y": 24
+        "y": 6
       },
       "targets": [
         {
-          "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{name=~\".*shark_bay.*\"}[1m]))"
+          "expr": "missing_candle_gap_count"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        }
+      }
     },
     {
-      "type": "timeseries",
-      "title": "Container memory usage (bytes)",
+      "type": "stat",
+      "title": "Duplicate candle count (1h)",
       "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 24
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 6
       },
       "targets": [
         {
-          "expr": "sum by (name) (container_memory_usage_bytes{name=~\".*shark_bay.*\"})"
+          "expr": "increase(duplicate_candle_total[1h])"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          }
+        }
+      }
     },
     {
-      "type": "timeseries",
-      "title": "Container restart count",
+      "type": "stat",
+      "title": "Invalid OHLC count (1h)",
       "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 0,
-        "y": 32
-      },
-      "targets": [
-        {
-          "expr": "sum by (name) (changes(container_start_time_seconds{name=~\"db|ingestor|api|prometheus|grafana\"}[24h]))"
-        }
-      ]
-    },
-    {
-      "type": "timeseries",
-      "title": "Container network RX/TX (bytes/s)",
-      "gridPos": {
-        "h": 8,
-        "w": 8,
+        "h": 4,
+        "w": 4,
         "x": 8,
-        "y": 32
+        "y": 6
       },
       "targets": [
         {
-          "expr": "sum by (name) (rate(container_network_receive_bytes_total{name=~\"db|ingestor|api|prometheus|grafana\"}[5m]))",
-          "legendFormat": "{{name}} RX"
-        },
+          "expr": "increase(invalid_ohlc_total[1h])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Invalid volume count (1h)",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 6
+      },
+      "targets": [
         {
-          "expr": "sum by (name) (rate(container_network_transmit_bytes_total{name=~\"db|ingestor|api|prometheus|grafana\"}[5m]))",
-          "legendFormat": "{{name}} TX"
+          "expr": "increase(invalid_volume_total[1h])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Future timestamp count (1h)",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 6
+      },
+      "targets": [
+        {
+          "expr": "increase(future_timestamp_total[1h])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Candle inserts rate",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 6
+      },
+      "targets": [
+        {
+          "expr": "rate(candle_insert_total[5m])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps"
+        }
+      }
+    },
+    {
+      "type": "row",
+      "title": "Backfill Recovery",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 10
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Backfill request count (1h)",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 11
+      },
+      "targets": [
+        {
+          "expr": "increase(rest_backfill_requested_total[1h])"
         }
       ]
     },
     {
-      "type": "timeseries",
-      "title": "Container disk I/O (bytes/s)",
+      "type": "stat",
+      "title": "Backfill completed count (1h)",
       "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 32
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 11
       },
       "targets": [
         {
-          "expr": "sum by (name) (rate(container_fs_reads_bytes_total{name=~\"db|ingestor|api|prometheus|grafana\"}[5m]))",
-          "legendFormat": "{{name}} read"
-        },
+          "expr": "increase(rest_backfill_completed_total[1h])"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Backfill failed count (1h)",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 11
+      },
+      "targets": [
         {
-          "expr": "sum by (name) (rate(container_fs_writes_bytes_total{name=~\"db|ingestor|api|prometheus|grafana\"}[5m]))",
-          "legendFormat": "{{name}} write"
+          "expr": "increase(rest_backfill_failed_total[1h])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Last backfill candle count",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 11
+      },
+      "targets": [
+        {
+          "expr": "last_backfill_candle_count"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Websocket reconnect count (1h)",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 11
+      },
+      "targets": [
+        {
+          "expr": "increase(websocket_reconnect_total[1h])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Backfill candles inserted (1h)",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 11
+      },
+      "targets": [
+        {
+          "expr": "increase(rest_backfill_candles_inserted_total[1h])"
         }
       ]
     }

@@ -11,6 +11,10 @@ from app.metrics import (
     db_connection_status,
     duplicate_candle_total,
     ingest_error_total,
+    invalid_ohlc_total,
+    invalid_volume_total,
+    future_timestamp_total,
+    last_backfill_candle_count,
     latest_candle_timestamp,
     missing_candle_gap_count,
     rest_backfill_candles_inserted_total,
@@ -100,6 +104,17 @@ def parse_kline(symbol: str, k):
     }
 
 
+
+
+def record_candle_quality_metrics(candle):
+    if candle["high"] < candle["open"] or candle["high"] < candle["close"] or candle["low"] > candle["open"] or candle["low"] > candle["close"] or candle["high"] < candle["low"]:
+        invalid_ohlc_total.inc()
+    if candle["volume"] <= 0:
+        invalid_volume_total.inc()
+    if candle["open_time"] > datetime.now(timezone.utc):
+        future_timestamp_total.inc()
+
+
 def upsert_candle(conn, candle):
     with conn.cursor() as cur:
         cur.execute(
@@ -149,6 +164,7 @@ def recover_recent_gap(conn, logger, symbol: str, metrics: IngestionMetrics):
     if os.getenv("ENABLE_GAP_BACKFILL", "true").lower() != "true":
         metrics.last_backfill_status = "disabled"
         metrics.last_backfill_candle_count = 0
+        last_backfill_candle_count.set(0)
         metrics.last_backfill_time = datetime.now(timezone.utc)
         return
 
@@ -164,6 +180,7 @@ def recover_recent_gap(conn, logger, symbol: str, metrics: IngestionMetrics):
         missing_candle_gap_count.set(0)
         metrics.last_backfill_status = "skipped_no_local_anchor"
         metrics.last_backfill_candle_count = 0
+        last_backfill_candle_count.set(0)
         metrics.last_backfill_time = datetime.now(timezone.utc)
         return
 
@@ -173,6 +190,7 @@ def recover_recent_gap(conn, logger, symbol: str, metrics: IngestionMetrics):
     if gap_count <= 0:
         metrics.last_backfill_status = "no_gap"
         metrics.last_backfill_candle_count = 0
+        last_backfill_candle_count.set(0)
         metrics.last_backfill_time = datetime.now(timezone.utc)
         return
 
@@ -189,6 +207,7 @@ def recover_recent_gap(conn, logger, symbol: str, metrics: IngestionMetrics):
         inserted_count = 0
         for k in klines:
             candle = parse_kline(symbol, k)
+            record_candle_quality_metrics(candle)
             inserted = upsert_candle(conn, candle)
             candle_insert_total.inc()
             if inserted:
@@ -200,6 +219,7 @@ def recover_recent_gap(conn, logger, symbol: str, metrics: IngestionMetrics):
         rest_backfill_completed_total.inc()
         metrics.last_backfill_status = "completed"
         metrics.last_backfill_candle_count = inserted_count
+        last_backfill_candle_count.set(inserted_count)
         metrics.last_backfill_time = datetime.now(timezone.utc)
         with conn.cursor() as cur:
             cur.execute(
@@ -219,6 +239,7 @@ def recover_recent_gap(conn, logger, symbol: str, metrics: IngestionMetrics):
         rest_backfill_failed_total.inc()
         metrics.last_backfill_status = "failed"
         metrics.last_backfill_candle_count = 0
+        last_backfill_candle_count.set(0)
         metrics.last_backfill_time = datetime.now(timezone.utc)
         with conn.cursor() as cur:
             cur.execute(
@@ -314,6 +335,7 @@ def run():
                         klines = fetch_latest_klines(symbol=symbol, interval="1m", limit=2)
                         for k in klines:
                             candle = parse_kline(symbol, k)
+                            record_candle_quality_metrics(candle)
                             inserted = upsert_candle(conn, candle)
                             candle_insert_total.inc()
                             if not inserted:
