@@ -219,8 +219,7 @@ else:
         auto_refresh = st.checkbox("Auto-refresh", value=True)
 
     if auto_refresh:
-        st.query_params["_market_ts"] = datetime.now(timezone.utc).isoformat()
-        st.markdown(f"<meta http-equiv='refresh' content='{refresh_seconds}'>", unsafe_allow_html=True)
+        st.autorefresh(interval=refresh_seconds * 1000, key="live_market_autorefresh")
 
     limit = LIVE_WINDOWS[selected_window]
     try:
