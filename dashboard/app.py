@@ -3,10 +3,8 @@ from datetime import datetime, timezone
 
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 import requests
 import streamlit as st
-from plotly.subplots import make_subplots
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://api:8000")
 DEFAULT_LIMIT = int(os.getenv("BACKTEST_LIST_LIMIT", "100"))
@@ -28,14 +26,7 @@ def post_json(path: str, payload: dict):
     return resp.json()
 
 
-LIVE_WINDOWS = {
-    "1h": 60,
-    "6h": 360,
-    "24h": 1440,
-    "7d": 10080,
-}
-
-page_options = ["Run Backtest", "Backtest Explorer", "Live Market Chart"]
+page_options = ["Run Backtest", "Backtest Explorer", "Data Ingestion Status"]
 if "selected_page" not in st.session_state:
     st.session_state["selected_page"] = page_options[0]
 
@@ -209,82 +200,36 @@ elif page == "Backtest Explorer":
                 st.dataframe(pd.DataFrame(fills), use_container_width=True, hide_index=True)
 
 else:
-    st.subheader("Live Market Chart")
-    st.caption("Read-only live BTCUSDT 1m market data view.")
+    st.subheader("Data Ingestion Status")
+    st.caption("Operational status for candle ingestion and API health.")
 
     with st.sidebar:
-        st.subheader("Live Chart Options")
-        selected_window = st.selectbox("Recent Window", options=list(LIVE_WINDOWS.keys()), index=1)
-        refresh_seconds = st.slider("Refresh interval (seconds)", min_value=3, max_value=60, value=5, step=1)
+        st.subheader("Status Options")
+        refresh_seconds = st.slider("Refresh interval (seconds)", min_value=3, max_value=60, value=10, step=1)
         auto_refresh = st.checkbox("Auto-refresh", value=True)
 
     if auto_refresh:
-        st.autorefresh(interval=refresh_seconds * 1000, key="live_market_autorefresh")
+        st.autorefresh(interval=refresh_seconds * 1000, key="ingestion_status_autorefresh")
 
-    limit = LIVE_WINDOWS[selected_window]
     try:
-        payload = fetch_json(f"/candles?symbol=BTCUSDT&interval=1m&limit={limit}")
+        status_payload = fetch_json("/ingestion/status")
+        health_payload = fetch_json("/health")
     except Exception as exc:
-        st.error(f"Failed to load candles: {exc}")
+        st.error(f"Failed to load ingestion status: {exc}")
         st.stop()
 
-    candles = payload.get("candles", [])
-    if not candles:
-        st.info("No candle data available yet.")
-        st.stop()
+    latest_candle_raw = status_payload.get("latest_candle_time")
+    latest_candle_ts = pd.to_datetime(latest_candle_raw, utc=True, errors="coerce") if latest_candle_raw else None
+    lag_seconds = None
+    if latest_candle_ts is not None and not pd.isna(latest_candle_ts):
+        lag_seconds = max((datetime.now(timezone.utc) - latest_candle_ts.to_pydatetime()).total_seconds(), 0)
 
-    df = pd.DataFrame(candles)
-    df["open_time"] = pd.to_datetime(df["open_time"], utc=True, errors="coerce")
-    df["close_time"] = pd.to_datetime(df["close_time"], utc=True, errors="coerce")
-    for col in ["open", "high", "low", "close", "volume"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    df = df.sort_values("open_time").dropna(subset=["open_time", "open", "high", "low", "close", "volume"])
-    if df.empty:
-        st.warning("Candle data is malformed or empty after parsing.")
-        st.stop()
-
-    latest_candle_ts = df["open_time"].iloc[-1]
-    lag_seconds = max((datetime.now(timezone.utc) - latest_candle_ts.to_pydatetime()).total_seconds(), 0)
-
-    metric_cols = st.columns(3)
-    metric_cols[0].metric("Latest Candle (UTC)", latest_candle_ts.strftime("%Y-%m-%d %H:%M:%S"))
-    metric_cols[1].metric("Candles in Window", f"{len(df)}")
-    metric_cols[2].metric("Data Lag", f"{lag_seconds:.1f}s")
-
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.04, row_heights=[0.75, 0.25])
-    fig.add_trace(
-        go.Candlestick(
-            x=df["open_time"],
-            open=df["open"],
-            high=df["high"],
-            low=df["low"],
-            close=df["close"],
-            name="BTCUSDT 1m",
-        ),
-        row=1,
-        col=1,
+    metric_cols = st.columns(5)
+    metric_cols[0].metric(
+        "Latest Candle (UTC)",
+        latest_candle_ts.strftime("%Y-%m-%d %H:%M:%S") if latest_candle_ts is not None and not pd.isna(latest_candle_ts) else "N/A",
     )
-    fig.add_trace(
-        go.Bar(
-            x=df["open_time"],
-            y=df["volume"],
-            name="Volume",
-            marker_color="#4C78A8",
-            opacity=0.8,
-        ),
-        row=2,
-        col=1,
-    )
-
-    fig.update_layout(
-        title=f"BTCUSDT 1m Candles ({selected_window})",
-        xaxis_rangeslider_visible=False,
-        legend_orientation="h",
-        legend_y=1.02,
-        margin=dict(l=20, r=20, t=60, b=20),
-        height=700,
-    )
-    fig.update_yaxes(title_text="Price", row=1, col=1)
-    fig.update_yaxes(title_text="Volume", row=2, col=1)
-    st.plotly_chart(fig, use_container_width=True)
+    metric_cols[1].metric("Data Lag (seconds)", f"{lag_seconds:.1f}" if lag_seconds is not None else "N/A")
+    metric_cols[2].metric("Total Candle Count", str(status_payload.get("total_candle_count", 0)))
+    metric_cols[3].metric("API Health", str(health_payload.get("status", "UNKNOWN")))
+    metric_cols[4].metric("Ingestion Status", str(status_payload.get("collector_status", "unknown")))
