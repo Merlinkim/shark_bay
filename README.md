@@ -508,3 +508,71 @@ docker compose exec -T db psql -U postgres -d market_data -c "SELECT symbol, MIN
    - sustained red on `Data lag seconds` with rising `ingest_error_total`
    - non-zero `Future timestamp count (1h)`
    - repeated `Websocket reconnect count (1h)` spikes plus failed backfills
+
+---
+
+## v0.4.1 Deployment Readiness
+
+### Environment configuration
+
+1. Copy env template:
+
+```bash
+cp .env.example .env
+```
+
+2. Review and set environment values before deployment.
+3. Never commit real secrets.
+
+### Persistent volumes
+
+- `pgdata` → PostgreSQL data (`/var/lib/postgresql/data`)
+- `grafana-data` → Grafana state (`/var/lib/grafana`)
+- `prometheus-data` → Prometheus TSDB (`/prometheus`)
+
+### PostgreSQL backup and restore
+
+Backup:
+
+```bash
+docker compose exec -T db pg_dump -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-market_data}" > backup_market_data.sql
+```
+
+Restore (to a running DB):
+
+```bash
+cat backup_market_data.sql | docker compose exec -T db psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-market_data}"
+```
+
+## Deployment checklist (safe VPS rollout)
+
+- [ ] Pull latest code on VPS and verify target branch/tag.
+- [ ] Create/update `.env` from `.env.example`.
+- [ ] Verify required ports are available (3000/5432/8000/8501/9090/8080).
+- [ ] Build and start: `docker compose up --build -d`.
+- [ ] Verify health endpoints and ingestion status.
+- [ ] Verify Prometheus targets are UP.
+- [ ] Verify Grafana dashboard has data.
+- [ ] Capture `docker compose ps` and recent logs for deployment record.
+
+## Rollback checklist
+
+- [ ] Keep previous image/code revision available.
+- [ ] Stop new stack safely: `docker compose down`.
+- [ ] Checkout previous known-good revision.
+- [ ] Start previous revision: `docker compose up --build -d`.
+- [ ] Validate `/health`, `/ingestion/status`, and Grafana/Prometheus.
+- [ ] If schema drift suspected, restore from latest verified DB backup.
+
+## Health verification commands
+
+```bash
+docker compose ps
+curl -sS http://localhost:8000/health
+curl -sS http://localhost:8000/health/live
+curl -sS http://localhost:8000/health/ready
+curl -sS http://localhost:8000/ingestion/status
+curl -sS http://localhost:9090/api/v1/targets
+```
+
+For detailed failure triage and copy-paste debugging commands, see `docs/agent_debugging.md`.
