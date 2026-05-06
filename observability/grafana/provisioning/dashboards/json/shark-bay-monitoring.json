@@ -26,7 +26,7 @@
       },
       "targets": [
         {
-          "expr": "latest_candle_timestamp * 1000"
+          "expr": "(latest_candle_timestamp{job=\"ingestor\"} unless latest_candle_timestamp{job=\"ingestor\"} == 0) * 1000"
         }
       ],
       "fieldConfig": {
@@ -48,7 +48,8 @@
                 "value": 300
               }
             ]
-          }
+          },
+          "noValue": "No data"
         }
       }
     },
@@ -63,7 +64,7 @@
       },
       "targets": [
         {
-          "expr": "clamp_min(time() - latest_candle_timestamp, 0)"
+          "expr": "clamp_min(time() - (latest_candle_timestamp{job=\"ingestor\"} unless latest_candle_timestamp{job=\"ingestor\"} == 0), 0)"
         }
       ],
       "fieldConfig": {
@@ -86,7 +87,8 @@
               }
             ]
           },
-          "decimals": 0
+          "decimals": 0,
+          "noValue": "No data"
         }
       }
     },
@@ -194,7 +196,7 @@
       },
       "targets": [
         {
-          "expr": "increase(missing_candle_gap_count[1h])"
+          "expr": "increase(missing_candle_gap_count{job=\"ingestor\"}[1h])"
         }
       ],
       "fieldConfig": {
@@ -231,7 +233,7 @@
       },
       "targets": [
         {
-          "expr": "increase(duplicate_candle_total[1h])"
+          "expr": "increase(duplicate_candle_total{job=\"ingestor\"}[1h])"
         }
       ],
       "fieldConfig": {
@@ -268,7 +270,7 @@
       },
       "targets": [
         {
-          "expr": "increase(invalid_ohlc_total[1h])"
+          "expr": "increase(invalid_ohlc_total{job=\"ingestor\"}[1h])"
         }
       ],
       "fieldConfig": {
@@ -305,7 +307,7 @@
       },
       "targets": [
         {
-          "expr": "increase(invalid_volume_total[1h])"
+          "expr": "increase(invalid_volume_total{job=\"ingestor\"}[1h])"
         }
       ],
       "fieldConfig": {
@@ -342,7 +344,7 @@
       },
       "targets": [
         {
-          "expr": "increase(future_timestamp_total[1h])"
+          "expr": "increase(future_timestamp_total{job=\"ingestor\"}[1h])"
         }
       ],
       "fieldConfig": {
@@ -409,7 +411,7 @@
       },
       "targets": [
         {
-          "expr": "increase(rest_backfill_requested_total[1h])"
+          "expr": "increase(rest_backfill_requested_total{job=\"ingestor\"}[1h])"
         }
       ]
     },
@@ -424,7 +426,7 @@
       },
       "targets": [
         {
-          "expr": "increase(rest_backfill_completed_total[1h])"
+          "expr": "increase(rest_backfill_completed_total{job=\"ingestor\"}[1h])"
         }
       ]
     },
@@ -439,7 +441,7 @@
       },
       "targets": [
         {
-          "expr": "increase(rest_backfill_failed_total[1h])"
+          "expr": "increase(rest_backfill_failed_total{job=\"ingestor\"}[1h])"
         }
       ],
       "fieldConfig": {
@@ -474,7 +476,7 @@
       },
       "targets": [
         {
-          "expr": "last_backfill_candle_count"
+          "expr": "last_backfill_candle_count{job=\"ingestor\"}"
         }
       ]
     },
@@ -524,7 +526,7 @@
       },
       "targets": [
         {
-          "expr": "increase(rest_backfill_candles_inserted_total[1h])"
+          "expr": "increase(rest_backfill_candles_inserted_total{job=\"ingestor\"}[1h])"
         }
       ]
     }
