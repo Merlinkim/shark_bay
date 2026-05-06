@@ -10,6 +10,27 @@ This repository runs a small market-data platform composed of:
 
 ---
 
+
+## CI (GitHub Actions)
+
+A lightweight CI workflow runs on every pull request and on pushes to `main` via `.github/workflows/ci.yml`.
+
+What it checks:
+- Python 3.11 environment setup
+- Dependency install from `app/requirements.txt` and `dashboard/requirements.txt`
+- Targeted fast tests only:
+  - `tests/test_backtest.py`
+  - `tests/test_data_quality.py`
+  - `tests/test_import_binance_klines.py`
+- Python compile checks:
+  - `python -m py_compile app/*.py dashboard/app.py`
+- `docker compose config` syntax validation when Docker Compose is available on the runner
+
+Notes:
+- CI does **not** require Binance network access, secrets, or starting full Docker services.
+- `tests/test_api.py` / `tests/test_main.py` are intentionally not part of this v0.4.2 CI target set to keep runtime short and deterministic; they can still be run locally.
+- `httpx` is installed in CI test dependencies to avoid FastAPI/TestClient dependency gaps in environments that run API tests.
+
 ## Docker Compose Architecture
 
 `docker-compose.yml` defines seven services and two persistent volumes:
