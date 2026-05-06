@@ -234,3 +234,25 @@ This guide summarizes the currently available runtime checks and test commands f
   - lag panel yellow/red for multiple refreshes
   - any non-zero future timestamp events
   - growing backfill failed count or reconnect spikes
+
+
+## 18) CI workflow (v0.4.2)
+
+- **Purpose**: provide a fast, reliable pre-deploy gate for obvious regressions without requiring live Binance access, secrets, or full Docker stack startup.
+- **Workflow file**: `.github/workflows/ci.yml`
+- **Triggers**:
+  - `pull_request`
+  - `push` to `main`
+- **Python version**: `3.11`
+- **CI test scope** (explicit):
+  - `tests/test_backtest.py`
+  - `tests/test_data_quality.py`
+  - `tests/test_import_binance_klines.py`
+- **Compile checks**:
+  - `python -m py_compile app/*.py dashboard/app.py`
+- **Compose syntax check**:
+  - `docker compose config` (only when Docker Compose is available on runner)
+- **Dependency note**:
+  - `httpx` is installed as a CI test dependency to avoid FastAPI `TestClient` dependency issues in environments that include API tests.
+- **Intentional exclusions for speed/reliability**:
+  - `tests/test_api.py` and `tests/test_main.py` are not part of this milestone CI command list; run them locally as needed.
