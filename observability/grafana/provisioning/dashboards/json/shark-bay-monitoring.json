@@ -26,12 +26,12 @@
       },
       "targets": [
         {
-          "expr": "latest_candle_timestamp"
+          "expr": "latest_candle_timestamp * 1000"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "dateTimeFromNow",
+          "unit": "dateTimeAsIso",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -63,7 +63,7 @@
       },
       "targets": [
         {
-          "expr": "time() - latest_candle_timestamp"
+          "expr": "clamp_min(time() - latest_candle_timestamp, 0)"
         }
       ],
       "fieldConfig": {
@@ -85,7 +85,8 @@
                 "value": 180
               }
             ]
-          }
+          },
+          "decimals": 0
         }
       }
     },
@@ -193,7 +194,7 @@
       },
       "targets": [
         {
-          "expr": "missing_candle_gap_count"
+          "expr": "increase(missing_candle_gap_count[1h])"
         }
       ],
       "fieldConfig": {
@@ -213,7 +214,9 @@
                 "value": 5
               }
             ]
-          }
+          },
+          "unit": "short",
+          "decimals": 0
         }
       }
     },
@@ -248,7 +251,9 @@
                 "value": 10
               }
             ]
-          }
+          },
+          "unit": "short",
+          "decimals": 0
         }
       }
     },
@@ -283,7 +288,9 @@
                 "value": 5
               }
             ]
-          }
+          },
+          "unit": "short",
+          "decimals": 0
         }
       }
     },
@@ -318,7 +325,9 @@
                 "value": 5
               }
             ]
-          }
+          },
+          "unit": "short",
+          "decimals": 0
         }
       }
     },
@@ -353,7 +362,9 @@
                 "value": 2
               }
             ]
-          }
+          },
+          "unit": "short",
+          "decimals": 0
         }
       }
     },
