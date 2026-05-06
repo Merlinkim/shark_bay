@@ -2,15 +2,15 @@ services:
   db:
     image: postgres:16
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: market_data
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-market_data}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d market_data"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-market_data}"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -19,11 +19,14 @@ services:
     build:
       context: ./app
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/market_data
-      SYMBOL: BTCUSDT
-      POLL_SECONDS: 10
-      METRICS_PORT: 9100
-      LOG_LEVEL: INFO
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@db:5432/market_data}
+      SYMBOL: ${SYMBOL:-BTCUSDT}
+      POLL_SECONDS: ${POLL_SECONDS:-10}
+      METRICS_PORT: ${METRICS_PORT:-9100}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ENABLE_GAP_BACKFILL: ${ENABLE_GAP_BACKFILL:-true}
+      BACKFILL_MAX_CANDLES_PER_RUN: ${BACKFILL_MAX_CANDLES_PER_RUN:-500}
+      REST_BACKFILL_SLEEP_SECONDS: ${REST_BACKFILL_SLEEP_SECONDS:-0.2}
     depends_on:
       db:
         condition: service_healthy
@@ -34,43 +37,42 @@ services:
       context: ./app
     command: uvicorn app.api:app --host 0.0.0.0 --port 8000
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/market_data
-      LOG_LEVEL: INFO
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@db:5432/market_data}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
       db:
         condition: service_healthy
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
     restart: unless-stopped
-
 
   research-ui:
     build:
       context: ./dashboard
     environment:
-      API_BASE_URL: http://api:8000
-      BACKTEST_LIST_LIMIT: 100
+      API_BASE_URL: ${API_BASE_URL:-http://api:8000}
+      BACKTEST_LIST_LIMIT: ${BACKTEST_LIST_LIMIT:-100}
     depends_on:
       - api
     ports:
-      - "8501:8501"
+      - "${RESEARCH_UI_PORT:-8501}:8501"
     restart: unless-stopped
 
   prometheus:
     image: prom/prometheus:v2.54.1
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-15d}"
     volumes:
       - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
     ports:
-      - "9090:9090"
+      - "${PROMETHEUS_PORT:-9090}:9090"
     depends_on:
       - api
       - ingestor
       - cadvisor
     restart: unless-stopped
-
-
 
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.49.1
@@ -84,20 +86,20 @@ services:
       - /var/lib/docker/:/var/lib/docker:ro
       - /dev/disk/:/dev/disk:ro
     ports:
-      - "8080:8080"
+      - "${CADVISOR_PORT:-8080}:8080"
     restart: unless-stopped
 
   grafana:
     image: grafana/grafana:11.2.2
     environment:
-      GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-admin}
     volumes:
       - ./observability/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
       - ./observability/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
       - grafana-data:/var/lib/grafana
     ports:
-      - "3000:3000"
+      - "${GRAFANA_PORT:-3000}:3000"
     depends_on:
       - prometheus
       - db
@@ -106,3 +108,4 @@ services:
 volumes:
   pgdata:
   grafana-data:
+  prometheus-data:
