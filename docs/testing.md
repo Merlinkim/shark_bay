@@ -218,7 +218,7 @@ This guide summarizes the currently available runtime checks and test commands f
 - **Purpose**: verify ingestion/data-quality/backfill observability and threshold coloring in Grafana.
 - **Commands**:
   ```bash
-  curl -sS http://localhost:8000/metrics | rg "latest_candle_timestamp|missing_candle_gap_count|invalid_ohlc_total|invalid_volume_total|future_timestamp_total|rest_backfill_requested_total|rest_backfill_completed_total|rest_backfill_failed_total|last_backfill_candle_count|websocket_reconnect_total"
+  curl -sS http://localhost:8000/metrics | rg "latest_candle_timestamp|missing_candle_gap_count|invalid_ohlc_total|invalid_volume_total|future_timestamp_total|data_quality_gap_count|data_quality_duplicate_count|data_quality_invalid_ohlc_count|data_quality_invalid_volume_count|data_quality_future_timestamp_count|rest_backfill_requested_total|rest_backfill_completed_total|rest_backfill_failed_total|last_backfill_candle_count|websocket_reconnect_total"
   curl -sS http://localhost:9090/api/v1/query --data-urlencode 'query=time() - latest_candle_timestamp'
   ```
 - **Grafana checks**:
