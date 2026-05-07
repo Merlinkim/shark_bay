@@ -1,11 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
-import { Bar, CartesianGrid, ComposedChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { ColorType, createChart, type IChartApi, type ISeriesApi, type Time } from 'lightweight-charts';
 
 interface Candle {
-  symbol: string;
   open_time: string;
-  close_time: string;
   open: number;
   high: number;
   low: number;
@@ -28,14 +26,20 @@ export function LiveMarketChartPage() {
   const [candles, setCandles] = useState<Candle[]>([]);
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
+  const priceRef = useRef<HTMLDivElement | null>(null);
+  const volumeRef = useRef<HTMLDivElement | null>(null);
+  const priceChartRef = useRef<IChartApi | null>(null);
+  const volumeChartRef = useRef<IChartApi | null>(null);
+  const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
+
   const fetchCandles = async () => {
     setLoading(true);
     try {
       const response = await fetch(`${apiBaseUrl}/candles?symbol=BTCUSDT&interval=1m&limit=${RANGE_LIMIT[range]}`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const payload = await response.json();
-      const rows = (payload.candles ?? []) as Candle[];
-      setCandles(rows.slice().reverse());
+      setCandles(((payload.candles ?? []) as Candle[]).slice().reverse());
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
@@ -51,34 +55,75 @@ export function LiveMarketChartPage() {
     return () => clearInterval(timer);
   }, [polling, range]);
 
+  const transformed = useMemo(() => candles.map((c) => ({
+    time: Math.floor(new Date(c.open_time).getTime() / 1000) as Time,
+    open: c.open,
+    high: c.high,
+    low: c.low,
+    close: c.close,
+    volume: c.volume,
+  })), [candles]);
+
+  useEffect(() => {
+    if (!priceRef.current || !volumeRef.current) return;
+
+    const commonOptions = {
+      layout: { background: { type: ColorType.Solid, color: '#12161d' }, textColor: '#a9b2c1' },
+      grid: { vertLines: { color: '#252d3a' }, horzLines: { color: '#252d3a' } },
+      crosshair: { mode: 0 as const },
+      rightPriceScale: { borderColor: '#252d3a' },
+      timeScale: { borderColor: '#252d3a', timeVisible: true, secondsVisible: false },
+    };
+
+    const priceChart = createChart(priceRef.current, { ...commonOptions, width: priceRef.current.clientWidth, height: 320 });
+    const volumeChart = createChart(volumeRef.current, { ...commonOptions, width: volumeRef.current.clientWidth, height: 120 });
+
+    const candleSeries = priceChart.addCandlestickSeries({
+      upColor: '#4f9b79',
+      downColor: '#b97584',
+      borderVisible: false,
+      wickUpColor: '#4f9b79',
+      wickDownColor: '#b97584',
+    });
+
+    const volumeSeries = volumeChart.addHistogramSeries({ color: '#6b7280', priceFormat: { type: 'volume' } });
+
+    priceChartRef.current = priceChart;
+    volumeChartRef.current = volumeChart;
+    candleSeriesRef.current = candleSeries;
+    volumeSeriesRef.current = volumeSeries;
+
+    const resize = () => {
+      if (!priceRef.current || !volumeRef.current) return;
+      priceChart.applyOptions({ width: priceRef.current.clientWidth });
+      volumeChart.applyOptions({ width: volumeRef.current.clientWidth });
+    };
+
+    window.addEventListener('resize', resize);
+    return () => {
+      window.removeEventListener('resize', resize);
+      priceChart.remove();
+      volumeChart.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!candleSeriesRef.current || !volumeSeriesRef.current) return;
+    candleSeriesRef.current.setData(transformed);
+    volumeSeriesRef.current.setData(transformed.map((c) => ({ time: c.time, value: c.volume, color: c.close >= c.open ? '#4f9b79aa' : '#b97584aa' })));
+    priceChartRef.current?.timeScale().fitContent();
+    volumeChartRef.current?.timeScale().fitContent();
+  }, [transformed]);
+
   const latest = candles.at(-1);
   const lagSeconds = latest ? Math.max(0, Math.floor((Date.now() - new Date(latest.open_time).getTime()) / 1000)) : null;
-
-  const chartData = useMemo(
-    () => candles.map((c) => ({
-      time: new Date(c.open_time).toISOString().slice(11, 16),
-      open: c.open,
-      close: c.close,
-      high: c.high,
-      low: c.low,
-      volume: c.volume,
-      up: c.close >= c.open ? c.close : c.open,
-      down: c.close >= c.open ? c.open : c.close,
-      body: Math.abs(c.close - c.open),
-      wick: c.high - c.low,
-      direction: c.close >= c.open ? 'up' : 'down',
-      wickMid: (c.high + c.low) / 2,
-      bodyMid: (c.open + c.close) / 2,
-    })),
-    [candles],
-  );
 
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Live Market Chart</h1>
-          <p className="text-sm text-text-secondary">Read-only BTCUSDT visual candle inspection.</p>
+          <p className="text-sm text-text-secondary">Read-only BTCUSDT 1m candlestick inspection.</p>
         </div>
         <div className="flex gap-2">
           {(['1h', '6h', '24h', '7d'] as const).map((r) => (
@@ -98,36 +143,14 @@ export function LiveMarketChartPage() {
       </div>
 
       <section className="rounded-xl bg-surface-900 p-4 shadow-card ring-1 ring-surface-700/70">
-        {loading ? (
-          <div className="h-[420px] animate-pulse rounded-lg bg-surface-850" />
-        ) : error ? (
-          <div className="flex h-[420px] items-center justify-center rounded-lg bg-accent-red/10 text-sm text-accent-red">Failed to load candles: {error}</div>
-        ) : chartData.length === 0 ? (
-          <div className="flex h-[420px] items-center justify-center rounded-lg bg-surface-850 text-sm text-text-muted">No candle data available for selected range.</div>
+        {loading ? <div className="h-[460px] animate-pulse rounded-lg bg-surface-850" /> : error ? (
+          <div className="flex h-[460px] items-center justify-center rounded-lg bg-accent-red/10 text-sm text-accent-red">Failed to load candles: {error}</div>
+        ) : candles.length === 0 ? (
+          <div className="flex h-[460px] items-center justify-center rounded-lg bg-surface-850 text-sm text-text-muted">No candle data available for selected range.</div>
         ) : (
           <div className="space-y-2">
-            <div className="h-[300px]">
-              <ResponsiveContainer>
-                <ComposedChart data={chartData} margin={{ top: 8, right: 8, left: -15, bottom: 0 }}>
-                  <CartesianGrid stroke="#252d3a" strokeDasharray="2 4" vertical={false} />
-                  <XAxis dataKey="time" stroke="#818b9b" tickLine={false} axisLine={false} minTickGap={24} />
-                  <YAxis stroke="#818b9b" tickLine={false} axisLine={false} domain={['dataMin', 'dataMax']} width={42} />
-                  <Tooltip />
-                  <Bar dataKey="wick" fill="#94a3b8" barSize={2} />
-                  <Bar dataKey="body" fill="#6f8fdc" barSize={6} />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="h-[100px]">
-              <ResponsiveContainer>
-                <ComposedChart data={chartData}>
-                  <CartesianGrid stroke="#252d3a" strokeDasharray="2 4" vertical={false} />
-                  <XAxis dataKey="time" stroke="#818b9b" tickLine={false} axisLine={false} minTickGap={24} />
-                  <YAxis stroke="#818b9b" tickLine={false} axisLine={false} width={42} />
-                  <Bar dataKey="volume" fill="#4b5563" barSize={4} />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
+            <div ref={priceRef} className="h-[320px] w-full overflow-hidden rounded-lg" />
+            <div ref={volumeRef} className="h-[120px] w-full overflow-hidden rounded-lg" />
           </div>
         )}
       </section>
