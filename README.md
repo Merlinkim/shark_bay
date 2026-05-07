@@ -577,6 +577,10 @@ cat backup_market_data.sql | docker compose exec -T db psql -U "${POSTGRES_USER:
 - [ ] Verify required ports are available (3000/5432/8000/8501/9090/8080).
 - [ ] Build and start: `docker compose up --build -d`.
 - [ ] Verify health endpoints and ingestion status.
+- [ ] Reboot verification: run `docker compose ps` and confirm `db` is `Up`/healthy.
+- [ ] Reboot verification: run `curl -sS http://localhost:8000/health`.
+- [ ] Reboot verification: run `curl -sS http://localhost:8000/ingestion/status`.
+- [ ] Reboot verification: run `python -m app.data_quality --symbol BTCUSDT --interval 1m --lookback-hours 2`.
 - [ ] Verify Prometheus targets are UP.
 - [ ] Verify Grafana dashboard has data.
 - [ ] Capture `docker compose ps` and recent logs for deployment record.
@@ -598,6 +602,7 @@ curl -sS http://localhost:8000/health
 curl -sS http://localhost:8000/health/live
 curl -sS http://localhost:8000/health/ready
 curl -sS http://localhost:8000/ingestion/status
+python -m app.data_quality --symbol BTCUSDT --interval 1m --lookback-hours 2
 curl -sS http://localhost:9090/api/v1/targets
 ```
 
