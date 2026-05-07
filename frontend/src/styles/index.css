@@ -12,8 +12,9 @@
 body {
   margin: 0;
   font-family: Inter, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
-  background: #0b0d12;
-  color: #f2f4f8;
+  background: #0c0f14;
+  color: #eef2f7;
+  line-height: 1.45;
 }
 
 * {
