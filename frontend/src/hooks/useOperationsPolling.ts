@@ -1,10 +1,27 @@
 import { useEffect, useState } from 'react';
 import { api } from '../services/api';
-import type { HealthResponse, IngestionResponse } from '../types/status';
+import type { HealthResponse, IngestionApiResponse, IngestionViewModel } from '../types/status';
+
+function toIngestionViewModel(raw: IngestionApiResponse): IngestionViewModel {
+  const lastHeartbeat = raw.heartbeat?.last_heartbeat_at;
+  const heartbeatAgeSeconds = lastHeartbeat
+    ? Math.max(0, Math.floor((Date.now() - new Date(lastHeartbeat).getTime()) / 1000))
+    : null;
+
+  return {
+    latestCandleTime: raw.latest_candle_time ?? raw.last_candle_time ?? null,
+    collectorStatus: raw.collector_status ?? 'unknown',
+    totalCandleCount: raw.total_candle_count ?? 0,
+    lastBackfillStatus: raw.last_backfill_status ?? null,
+    lastBackfillCandleCount: raw.last_backfill_candle_count ?? null,
+    lastBackfillTime: raw.last_backfill_time ?? null,
+    heartbeatAgeSeconds,
+  };
+}
 
 export function useOperationsPolling(intervalMs = 10_000) {
   const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [ingestion, setIngestion] = useState<IngestionResponse | null>(null);
+  const [ingestion, setIngestion] = useState<IngestionViewModel | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -16,7 +33,7 @@ export function useOperationsPolling(intervalMs = 10_000) {
         const [healthData, ingestionData] = await Promise.all([api.health(), api.ingestionStatus()]);
         if (!alive) return;
         setHealth(healthData);
-        setIngestion(ingestionData);
+        setIngestion(toIngestionViewModel(ingestionData));
         setError(null);
       } catch (fetchError) {
         if (!alive) return;

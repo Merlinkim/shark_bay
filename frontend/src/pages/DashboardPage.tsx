@@ -14,7 +14,7 @@ const lagHistory = [
 
 export function DashboardPage() {
   const { health, ingestion, loading, error } = useOperationsPolling();
-  const severity = error ? 'error' : health?.status === 'ok' ? 'ok' : 'warn';
+  const severity = error ? 'error' : health?.status === 'OK' ? 'ok' : 'warn';
 
   if (loading) {
     return (
@@ -36,17 +36,17 @@ export function DashboardPage() {
         <StatusPill label={error ?? 'Stable'} severity={severity} />
       </div>
 
-      {error && <div className="flex items-start gap-2 rounded-xl bg-accent-red/10 px-3 py-2.5 text-sm text-accent-red"><AlertTriangle size={16} className="mt-0.5" /> API temporarily unavailable. Displaying latest successful values.</div>}
+      {error && <div className="flex items-start gap-2 rounded-xl bg-accent-red/10 px-3 py-2.5 text-sm text-accent-red"><AlertTriangle size={16} className="mt-0.5" /> API request failed. Check connectivity to backend.</div>}
 
       <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard title="API Health" value={health?.status ?? 'unknown'} status="live" />
-        <MetricCard title="Ingestion Status" value={ingestion?.ingestion_health ?? 'unknown'} status="live" />
-        <MetricCard title="Latest Candle" value={ingestion?.latest_candle ?? 'n/a'} hint="UTC timestamp" />
-        <MetricCard title="Lag Seconds" value={ingestion?.lag_seconds ?? 'n/a'} hint="vs expected feed" />
-        <MetricCard title="Poll Count" value={ingestion?.poll_count ?? 0} hint="session total" />
-        <MetricCard title="Reconnect Count" value={ingestion?.reconnect_count ?? 0} hint="session total" />
-        <MetricCard title="Gap Recovery" value={ingestion?.gap_recovery_status ?? 'unknown'} />
-        <MetricCard title="Data Quality" value={ingestion?.data_quality_summary ?? 'pending'} />
+        <MetricCard title="API Health" value={health?.status ?? '—'} status="live" />
+        <MetricCard title="Ingestion Status" value={ingestion?.collectorStatus ?? '—'} status="live" />
+        <MetricCard title="Latest Candle" value={ingestion?.latestCandleTime ?? '—'} hint="UTC timestamp" />
+        <MetricCard title="Lag Seconds" value={ingestion?.heartbeatAgeSeconds ?? '—'} hint="heartbeat age" />
+        <MetricCard title="Total Candles" value={ingestion?.totalCandleCount ?? '—'} hint="stored rows" />
+        <MetricCard title="Last Backfill Count" value={ingestion?.lastBackfillCandleCount ?? '—'} hint="most recent run" />
+        <MetricCard title="Backfill Status" value={ingestion?.lastBackfillStatus ?? '—'} />
+        <MetricCard title="Last Backfill Time" value={ingestion?.lastBackfillTime ?? '—'} />
       </section>
 
       <section className="rounded-xl bg-surface-900 p-4 shadow-card ring-1 ring-surface-700/70 md:p-5">

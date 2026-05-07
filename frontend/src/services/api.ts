@@ -1,4 +1,4 @@
-import type { HealthResponse, IngestionResponse } from '../types/status';
+import type { HealthResponse, IngestionApiResponse } from '../types/status';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
@@ -12,5 +12,5 @@ async function getJson<T>(path: string): Promise<T> {
 
 export const api = {
   health: () => getJson<HealthResponse>('/health'),
-  ingestionStatus: () => getJson<IngestionResponse>('/ingestion/status'),
+  ingestionStatus: () => getJson<IngestionApiResponse>('/ingestion/status'),
 };
