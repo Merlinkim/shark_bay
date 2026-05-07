@@ -66,6 +66,31 @@ future_timestamp_total = Counter(
     "Total number of candles observed with future timestamps",
 )
 
+data_quality_invalid_volume_count = Gauge(
+    "data_quality_invalid_volume_count",
+    "Latest data quality check invalid volume row count",
+)
+
+data_quality_invalid_ohlc_count = Gauge(
+    "data_quality_invalid_ohlc_count",
+    "Latest data quality check invalid OHLC row count",
+)
+
+data_quality_future_timestamp_count = Gauge(
+    "data_quality_future_timestamp_count",
+    "Latest data quality check future timestamp row count",
+)
+
+data_quality_gap_count = Gauge(
+    "data_quality_gap_count",
+    "Latest data quality check missing candle gap count",
+)
+
+data_quality_duplicate_count = Gauge(
+    "data_quality_duplicate_count",
+    "Latest data quality check duplicate row count",
+)
+
 last_backfill_candle_count = Gauge(
     "last_backfill_candle_count",
     "Number of candles inserted by the most recent backfill run",

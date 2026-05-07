@@ -8,6 +8,11 @@ from decimal import Decimal
 
 from app.metrics import (
     candle_insert_total,
+    data_quality_duplicate_count,
+    data_quality_future_timestamp_count,
+    data_quality_gap_count,
+    data_quality_invalid_ohlc_count,
+    data_quality_invalid_volume_count,
     db_connection_status,
     duplicate_candle_total,
     ingest_error_total,
@@ -107,12 +112,21 @@ def parse_kline(symbol: str, k):
 
 
 def record_candle_quality_metrics(candle):
+    invalid_ohlc = 0
+    invalid_volume = 0
+    future_timestamp = 0
     if candle["high"] < candle["open"] or candle["high"] < candle["close"] or candle["low"] > candle["open"] or candle["low"] > candle["close"] or candle["high"] < candle["low"]:
         invalid_ohlc_total.inc()
+        invalid_ohlc = 1
     if candle["volume"] <= 0:
         invalid_volume_total.inc()
+        invalid_volume = 1
     if candle["open_time"] > datetime.now(timezone.utc):
         future_timestamp_total.inc()
+        future_timestamp = 1
+    data_quality_invalid_ohlc_count.set(invalid_ohlc)
+    data_quality_invalid_volume_count.set(invalid_volume)
+    data_quality_future_timestamp_count.set(future_timestamp)
 
 
 def upsert_candle(conn, candle):
@@ -178,6 +192,7 @@ def recover_recent_gap(conn, logger, symbol: str, metrics: IngestionMetrics):
 
     if latest_stored is None:
         missing_candle_gap_count.set(0)
+        data_quality_gap_count.set(0)
         metrics.last_backfill_status = "skipped_no_local_anchor"
         metrics.last_backfill_candle_count = 0
         last_backfill_candle_count.set(0)
@@ -187,6 +202,7 @@ def recover_recent_gap(conn, logger, symbol: str, metrics: IngestionMetrics):
     next_expected_ms = int(latest_stored.timestamp() * 1000) + interval_ms
     gap_count = max(0, ((latest_closed_open_ms - next_expected_ms) // interval_ms) + 1)
     missing_candle_gap_count.set(gap_count)
+    data_quality_gap_count.set(gap_count)
     if gap_count <= 0:
         metrics.last_backfill_status = "no_gap"
         metrics.last_backfill_candle_count = 0
@@ -212,8 +228,10 @@ def recover_recent_gap(conn, logger, symbol: str, metrics: IngestionMetrics):
             candle_insert_total.inc()
             if inserted:
                 inserted_count += 1
+                data_quality_duplicate_count.set(0)
             else:
                 duplicate_candle_total.inc()
+                data_quality_duplicate_count.set(1)
             latest_candle_timestamp.set(candle["open_time"].timestamp())
         rest_backfill_candles_inserted_total.inc(inserted_count)
         rest_backfill_completed_total.inc()
