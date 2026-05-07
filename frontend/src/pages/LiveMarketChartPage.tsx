@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
-import { ColorType, createChart, type IChartApi, type ISeriesApi, type UTCTimestamp } from 'lightweight-charts';
+import { CandlestickSeries, ColorType, createChart, HistogramSeries, type IChartApi, type ISeriesApi, type UTCTimestamp } from 'lightweight-charts';
 
 interface Candle {
   open_time: string;
@@ -44,9 +44,6 @@ export function LiveMarketChartPage() {
         .slice()
         .reverse();
 
-      console.log('[LiveMarketChart] fetched candle count:', normalized.length);
-      console.log('[LiveMarketChart] first candle:', normalized[0]);
-      console.log('[LiveMarketChart] last candle:', normalized.at(-1));
 
       setCandles(normalized);
       setError(null);
@@ -94,8 +91,8 @@ export function LiveMarketChartPage() {
     const priceChart = createChart(priceRef.current, { ...commonOptions, width: priceRef.current.clientWidth, height: 320, crosshair: { mode: 0 } });
     const volumeChart = createChart(volumeRef.current, { ...commonOptions, width: volumeRef.current.clientWidth, height: 120, crosshair: { mode: 0 } });
 
-    const candleSeries = priceChart.addCandlestickSeries({ upColor: '#4f9b79', downColor: '#b97584', borderVisible: false, wickUpColor: '#4f9b79', wickDownColor: '#b97584' });
-    const volumeSeries = volumeChart.addHistogramSeries({ color: '#6b7280', priceFormat: { type: 'volume' } });
+    const candleSeries = priceChart.addSeries(CandlestickSeries, { upColor: '#4f9b79', downColor: '#b97584', borderVisible: false, wickUpColor: '#4f9b79', wickDownColor: '#b97584' });
+    const volumeSeries = volumeChart.addSeries(HistogramSeries, { color: '#6b7280', priceFormat: { type: 'volume' } });
 
     priceChartRef.current = priceChart;
     volumeChartRef.current = volumeChart;
