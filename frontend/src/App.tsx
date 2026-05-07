@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { ConsoleLayout } from './layouts/ConsoleLayout';
 import { DashboardPage } from './pages/DashboardPage';
 import { MarketDataPage } from './pages/MarketDataPage';
+import { LiveMarketChartPage } from './pages/LiveMarketChartPage';
 import { SimplePlaceholderPage } from './pages/SimplePlaceholderPage';
 
 export default function App() {
@@ -10,6 +11,7 @@ export default function App() {
       <Route element={<ConsoleLayout />}>
         <Route path="/" element={<DashboardPage />} />
         <Route path="/market-data" element={<MarketDataPage />} />
+        <Route path="/market-data/live-chart" element={<LiveMarketChartPage />} />
         <Route path="/research" element={<SimplePlaceholderPage title="Research Workspace" notes={['Strategy registry', 'Parameter sweeps', 'Run comparison', 'AI-assisted analysis', 'Feature engineering']} />} />
         <Route path="/strategies" element={<SimplePlaceholderPage title="Strategies" notes={['Execution graph', 'Versioned strategy manifests', 'Scenario simulation queue']} />} />
         <Route path="/agents" element={<SimplePlaceholderPage title="Agent Operations" notes={['OpenClaw orchestration', 'Agent monitoring', 'Autonomous backtest execution', 'Anomaly investigation', 'Supervised execution approval']} />} />
