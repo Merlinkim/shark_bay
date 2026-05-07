@@ -5,22 +5,29 @@ export default {
   theme: {
     extend: {
       colors: {
-        terminal: {
-          bg: '#07090d',
-          panel: '#10151d',
-          border: '#1c2632',
-          muted: '#6f8399',
-          text: '#d7e4f0',
+        surface: {
+          950: '#0b0d12',
+          900: '#11141a',
+          800: '#171b23',
+          700: '#222836',
         },
-        neon: {
-          cyan: '#29d3ff',
-          green: '#36ff8b',
-          amber: '#ffcc4d',
-          red: '#ff4d6d',
+        text: {
+          primary: '#f2f4f8',
+          secondary: '#a8b0bf',
+          muted: '#7e8797',
+        },
+        accent: {
+          blue: '#5b8cff',
+          green: '#33b07a',
+          amber: '#c99a46',
+          red: '#d05f73',
         },
       },
       boxShadow: {
-        glow: '0 0 0 1px rgba(41,211,255,0.2), 0 0 18px rgba(41,211,255,0.15)',
+        card: '0 1px 1px rgba(0,0,0,0.2), 0 10px 30px rgba(0,0,0,0.25)',
+      },
+      borderRadius: {
+        xl: '14px',
       },
     },
   },
