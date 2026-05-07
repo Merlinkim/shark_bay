@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
-import { ColorType, createChart, type IChartApi, type ISeriesApi, type Time } from 'lightweight-charts';
+import { ColorType, createChart, type IChartApi, type ISeriesApi, type UTCTimestamp } from 'lightweight-charts';
 
 interface Candle {
   open_time: string;
@@ -39,7 +39,16 @@ export function LiveMarketChartPage() {
       const response = await fetch(`${apiBaseUrl}/candles?symbol=BTCUSDT&interval=1m&limit=${RANGE_LIMIT[range]}`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const payload = await response.json();
-      setCandles(((payload.candles ?? []) as Candle[]).slice().reverse());
+      const normalized = ((payload.candles ?? []) as Candle[])
+        .map((c) => ({ ...c, open: Number(c.open), high: Number(c.high), low: Number(c.low), close: Number(c.close), volume: Number(c.volume) }))
+        .slice()
+        .reverse();
+
+      console.log('[LiveMarketChart] fetched candle count:', normalized.length);
+      console.log('[LiveMarketChart] first candle:', normalized[0]);
+      console.log('[LiveMarketChart] last candle:', normalized.at(-1));
+
+      setCandles(normalized);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
@@ -48,44 +57,44 @@ export function LiveMarketChartPage() {
     }
   };
 
-  useEffect(() => { void fetchCandles(); }, [range]);
+  useEffect(() => {
+    void fetchCandles();
+  }, [range]);
+
   useEffect(() => {
     if (!polling) return;
     const timer = setInterval(() => void fetchCandles(), 10_000);
     return () => clearInterval(timer);
   }, [polling, range]);
 
-  const transformed = useMemo(() => candles.map((c) => ({
-    time: Math.floor(new Date(c.open_time).getTime() / 1000) as Time,
-    open: c.open,
-    high: c.high,
-    low: c.low,
-    close: c.close,
-    volume: c.volume,
-  })), [candles]);
+  const transformed = useMemo(
+    () => candles
+      .map((c) => ({
+        time: Math.floor(new Date(c.open_time).getTime() / 1000) as UTCTimestamp,
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+        volume: c.volume,
+      }))
+      .filter((c) => Number.isFinite(c.time) && Number.isFinite(c.open) && Number.isFinite(c.high) && Number.isFinite(c.low) && Number.isFinite(c.close)),
+    [candles],
+  );
 
   useEffect(() => {
-    if (!priceRef.current || !volumeRef.current) return;
+    if (loading || error || candles.length === 0 || !priceRef.current || !volumeRef.current) return;
 
     const commonOptions = {
       layout: { background: { type: ColorType.Solid, color: '#12161d' }, textColor: '#a9b2c1' },
       grid: { vertLines: { color: '#252d3a' }, horzLines: { color: '#252d3a' } },
-      crosshair: { mode: 0 as const },
       rightPriceScale: { borderColor: '#252d3a' },
       timeScale: { borderColor: '#252d3a', timeVisible: true, secondsVisible: false },
     };
 
-    const priceChart = createChart(priceRef.current, { ...commonOptions, width: priceRef.current.clientWidth, height: 320 });
-    const volumeChart = createChart(volumeRef.current, { ...commonOptions, width: volumeRef.current.clientWidth, height: 120 });
+    const priceChart = createChart(priceRef.current, { ...commonOptions, width: priceRef.current.clientWidth, height: 320, crosshair: { mode: 0 } });
+    const volumeChart = createChart(volumeRef.current, { ...commonOptions, width: volumeRef.current.clientWidth, height: 120, crosshair: { mode: 0 } });
 
-    const candleSeries = priceChart.addCandlestickSeries({
-      upColor: '#4f9b79',
-      downColor: '#b97584',
-      borderVisible: false,
-      wickUpColor: '#4f9b79',
-      wickDownColor: '#b97584',
-    });
-
+    const candleSeries = priceChart.addCandlestickSeries({ upColor: '#4f9b79', downColor: '#b97584', borderVisible: false, wickUpColor: '#4f9b79', wickDownColor: '#b97584' });
     const volumeSeries = volumeChart.addHistogramSeries({ color: '#6b7280', priceFormat: { type: 'volume' } });
 
     priceChartRef.current = priceChart;
@@ -93,24 +102,42 @@ export function LiveMarketChartPage() {
     candleSeriesRef.current = candleSeries;
     volumeSeriesRef.current = volumeSeries;
 
-    const resize = () => {
+    const resizeObserver = new ResizeObserver(() => {
       if (!priceRef.current || !volumeRef.current) return;
-      priceChart.applyOptions({ width: priceRef.current.clientWidth });
-      volumeChart.applyOptions({ width: volumeRef.current.clientWidth });
-    };
+      priceChart.applyOptions({ width: priceRef.current.clientWidth, height: 320 });
+      volumeChart.applyOptions({ width: volumeRef.current.clientWidth, height: 120 });
+    });
+    resizeObserver.observe(priceRef.current);
+    resizeObserver.observe(volumeRef.current);
 
-    window.addEventListener('resize', resize);
     return () => {
-      window.removeEventListener('resize', resize);
+      resizeObserver.disconnect();
       priceChart.remove();
       volumeChart.remove();
+      priceChartRef.current = null;
+      volumeChartRef.current = null;
+      candleSeriesRef.current = null;
+      volumeSeriesRef.current = null;
     };
-  }, []);
+  }, [loading, error, candles.length]);
 
   useEffect(() => {
-    if (!candleSeriesRef.current || !volumeSeriesRef.current) return;
-    candleSeriesRef.current.setData(transformed);
-    volumeSeriesRef.current.setData(transformed.map((c) => ({ time: c.time, value: c.volume, color: c.close >= c.open ? '#4f9b79aa' : '#b97584aa' })));
+    if (!candleSeriesRef.current || !volumeSeriesRef.current || transformed.length === 0) return;
+
+    candleSeriesRef.current.setData(transformed.map((c) => ({
+      time: c.time,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+    })));
+    volumeSeriesRef.current.setData(
+      transformed.map((c) => ({
+        time: c.time,
+        value: c.volume,
+        color: c.close >= c.open ? '#4f9b79aa' : '#b97584aa',
+      })),
+    );
     priceChartRef.current?.timeScale().fitContent();
     volumeChartRef.current?.timeScale().fitContent();
   }, [transformed]);
@@ -149,8 +176,8 @@ export function LiveMarketChartPage() {
           <div className="flex h-[460px] items-center justify-center rounded-lg bg-surface-850 text-sm text-text-muted">No candle data available for selected range.</div>
         ) : (
           <div className="space-y-2">
-            <div ref={priceRef} className="h-[320px] w-full overflow-hidden rounded-lg" />
-            <div ref={volumeRef} className="h-[120px] w-full overflow-hidden rounded-lg" />
+            <div ref={priceRef} className="h-[320px] min-h-[320px] w-full overflow-hidden rounded-lg" />
+            <div ref={volumeRef} className="h-[120px] min-h-[120px] w-full overflow-hidden rounded-lg" />
           </div>
         )}
       </section>
