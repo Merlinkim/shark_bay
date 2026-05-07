@@ -5,6 +5,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
@@ -28,6 +29,25 @@ configure_logging()
 logger = StructuredLogger("api")
 
 app = FastAPI(title="Shark Bay API", version="0.2.0")
+
+
+
+def _parse_cors_origins() -> list[str]:
+    import os
+
+    raw = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
+    origins = [origin.strip() for origin in raw.split(",") if origin.strip()]
+    return origins
+
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_parse_cors_origins(),
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+)
 
 
 class BacktestRunSummary(BaseModel):

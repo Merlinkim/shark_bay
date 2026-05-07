@@ -602,3 +602,19 @@ curl -sS http://localhost:9090/api/v1/targets
 ```
 
 For detailed failure triage and copy-paste debugging commands, see `docs/agent_debugging.md`.
+
+
+### Local React dev CORS
+
+For local Vite React development (`http://localhost:5173`), the API now supports configurable CORS origins using `CORS_ALLOW_ORIGINS`.
+
+Default local-safe value:
+
+```bash
+CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+```
+
+Notes:
+- No wildcard (`*`) origin is enabled by default.
+- Production should set `CORS_ALLOW_ORIGINS` explicitly to trusted origins only.
+
