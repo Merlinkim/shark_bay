@@ -8,6 +8,7 @@ import { OperationsPage } from './pages/OperationsPage';
 import { InfrastructurePage } from './pages/InfrastructurePage';
 import { StrategiesPage } from './pages/StrategiesPage';
 import { AgentsPage } from './pages/AgentsPage';
+import { RiskControlPage } from './pages/RiskControlPage';
 
 export default function App() {
   return (
@@ -20,7 +21,7 @@ export default function App() {
         <Route path="/strategies" element={<StrategiesPage />} />
         <Route path="/agents" element={<AgentsPage />} />
         <Route path="/operations" element={<OperationsPage />} />
-        <Route path="/risk-control" element={<SimplePlaceholderPage title="Risk Control" notes={['Kill switch', 'Max drawdown controls', 'Emergency trading disable', 'Position exposure', 'Trade approval workflow']} />} />
+        <Route path="/risk-control" element={<RiskControlPage />} />
         <Route path="/infrastructure" element={<InfrastructurePage />} />
         <Route path="/settings" element={<SimplePlaceholderPage title="Settings" notes={['Exchange configs', 'Model configs', 'Deployment configs', 'Agent permissions']} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
