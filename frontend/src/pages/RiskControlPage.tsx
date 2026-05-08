@@ -69,8 +69,12 @@ export function RiskControlPage() {
       </section>
 
       <section className="grid grid-cols-1 gap-2 md:grid-cols-2">
-        {[['Drawdown trend', ddTrend, 'v'], ['Exposure trend', exposureTrend, 'v'], ['Latency guard trend', latencyTrend, 'v']].map(([title, data, key]) => (
-          <div key={String(title)} className="rounded-lg bg-surface-900 p-3 ring-1 ring-surface-700/70"><h3 className="mb-2 text-xs text-text-muted">{title}</h3><div className="h-24"><ResponsiveContainer><LineChart data={data as {t:string;v:number}[]}><CartesianGrid stroke="#252d3a" strokeOpacity={0.2} vertical={false}/><XAxis dataKey="t" hide/><YAxis hide/><Tooltip contentStyle={{background:'#12161d',border:'1px solid #252d3a'}}/><Line type="monotone" dataKey={String(key)} stroke="#6f8fdc" dot={false} isAnimationActive={false}/></LineChart></ResponsiveContainer></div></div>
+        {([
+          { title: 'Drawdown trend', data: ddTrend, key: 'v' },
+          { title: 'Exposure trend', data: exposureTrend, key: 'v' },
+          { title: 'Latency guard trend', data: latencyTrend, key: 'v' },
+        ] as Array<{ title: string; data: { t: string; v: number }[]; key: 'v' }>).map(({ title, data, key }) => (
+          <div key={String(title)} className="rounded-lg bg-surface-900 p-3 ring-1 ring-surface-700/70"><h3 className="mb-2 text-xs text-text-muted">{title}</h3><div className="h-24"><ResponsiveContainer><LineChart data={data as {t:string;v:number}[]}><CartesianGrid stroke="#252d3a" strokeOpacity={0.2} vertical={false}/><XAxis dataKey="t" hide/><YAxis hide/><Tooltip contentStyle={{background:'#12161d',border:'1px solid #252d3a'}}/><Line type="monotone" dataKey={key} stroke="#6f8fdc" dot={false} isAnimationActive={false}/></LineChart></ResponsiveContainer></div></div>
         ))}
         <div className="rounded-lg bg-surface-900 p-3 ring-1 ring-surface-700/70"><h3 className="mb-2 text-xs text-text-muted">Rejected order count (placeholder)</h3><div className="h-24"><ResponsiveContainer><BarChart data={rejectTrend}><CartesianGrid stroke="#252d3a" strokeOpacity={0.2} vertical={false}/><XAxis dataKey="t" hide/><YAxis hide/><Tooltip contentStyle={{background:'#12161d',border:'1px solid #252d3a'}}/><Bar dataKey="v" fill="#ac9060" /></BarChart></ResponsiveContainer></div></div>
       </section>

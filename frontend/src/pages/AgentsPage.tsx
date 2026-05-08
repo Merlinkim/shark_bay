@@ -69,7 +69,11 @@ export function AgentsPage() {
       </section>
 
       <section className="grid grid-cols-1 gap-2 md:grid-cols-3">
-        {[['Task throughput trend', throughput], ['Token usage trend', tokenTrend], ['Orchestration latency trend', latencyTrend]].map(([title, data]) => (
+        {([
+          { title: 'Task throughput trend', data: throughput },
+          { title: 'Token usage trend', data: tokenTrend },
+          { title: 'Orchestration latency trend', data: latencyTrend },
+        ] as Array<{ title: string; data: { t: string; v: number }[] }>).map(({ title, data }) => (
           <div key={String(title)} className="rounded-lg bg-surface-900 p-3 ring-1 ring-surface-700/70"><h3 className="mb-2 text-xs text-text-muted">{title}</h3><div className="h-24"><ResponsiveContainer><LineChart data={data as {t:string;v:number}[]}><CartesianGrid stroke="#252d3a" strokeOpacity={0.2} vertical={false}/><XAxis dataKey="t" hide/><YAxis hide/><Tooltip contentStyle={{background:'#12161d',border:'1px solid #252d3a'}}/><Line type="monotone" dataKey="v" stroke="#6f8fdc" dot={false} isAnimationActive={false}/></LineChart></ResponsiveContainer></div></div>
         ))}
       </section>

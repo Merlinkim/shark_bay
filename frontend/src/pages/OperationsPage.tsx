@@ -21,20 +21,6 @@ const RUNBOOK_GROUPS = {
   recovery: ['docker compose down && docker compose up --build -d'],
 };
 
-async function timedFetch(url: string, timeoutMs = 5000) {
-  const start = performance.now();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    return { ok: res.ok, status: res.status, latencyMs: Math.round(performance.now() - start), timeout: false };
-  } catch {
-    return { ok: false, status: 0, latencyMs: Math.round(performance.now() - start), timeout: true };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 export function OperationsPage() {
   const { health, ingestion, error } = useOperationsPolling();
   const [now, setNow] = useState(new Date());

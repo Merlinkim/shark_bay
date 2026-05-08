@@ -143,7 +143,7 @@ export function LiveMarketChartPage() {
     volumeChartRef.current?.timeScale().fitContent();
   }, [transformed]);
 
-  const latest = candles.at(-1);
+  const latest = candles.length > 0 ? candles[candles.length - 1] : undefined;
   const lagSeconds = latest ? Math.max(0, Math.floor((Date.now() - new Date(latest.open_time).getTime()) / 1000)) : null;
 
   return (
