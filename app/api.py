@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 import psycopg
 import requests
+import psutil
 from psycopg.rows import dict_row
 
 from app.metrics import api_request_latency_seconds, api_request_total, db_connection_status
@@ -172,34 +173,67 @@ def ops_infrastructure() -> dict[str, Any]:
     import os
 
     now = datetime.now(timezone.utc).isoformat()
+    vm = psutil.virtual_memory()
+    du = psutil.disk_usage('/')
+    boot = datetime.fromtimestamp(psutil.boot_time(), tz=timezone.utc)
+    uptime_seconds = int((datetime.now(timezone.utc) - boot).total_seconds())
+    dio = psutil.disk_io_counters()
+    nio = psutil.net_io_counters()
+
+    db_size_bytes = None
+    try:
+        with psycopg.connect(get_db_url()) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT pg_database_size(current_database())")
+                row = cur.fetchone()
+                db_size_bytes = int(row[0]) if row and row[0] is not None else None
+    except Exception:
+        db_size_bytes = None
+
     service_checks = [
-        _probe_service("api", "http://api:8000/health"),
-        _probe_service("ingestor", None),
-        _probe_service("db", None),
+        _probe_service("api", os.getenv("API_INTERNAL_URL", "http://api:8000/health")),
+        _probe_service("ingestor", os.getenv("INGESTOR_METRICS_URL", "http://ingestor:9100/")),
+        _probe_service("db", os.getenv("DB_HEALTH_URL", "http://api:8000/health/ready")),
         _probe_service("prometheus", os.getenv("PROMETHEUS_URL", "http://prometheus:9090/-/healthy")),
         _probe_service("grafana", os.getenv("GRAFANA_URL", "http://grafana:3000/api/health")),
         _probe_service("cadvisor", os.getenv("CADVISOR_URL", "http://cadvisor:8080/metrics")),
-        _probe_service("research-ui", None),
+        _probe_service("research-ui", os.getenv("RESEARCH_UI_URL", "http://research-ui:8501/")),
     ]
+
+    known_ports = {
+        "api": "8000", "ingestor": "9100", "db": "5432", "prometheus": "9090", "grafana": "3000", "cadvisor": "8080", "research-ui": "8501"
+    }
+    services = []
+    for check in service_checks:
+        services.append({
+            "service": check["service"],
+            "status": check["status"],
+            "latency_ms": check.get("latency_ms"),
+            "detail": check.get("detail"),
+            "uptime": "not_available",
+            "restart_count": None,
+            "port": known_ports.get(check["service"]),
+            "notes": "read-only probe",
+        })
 
     return {
         "checked_at": now,
         "host_overview": {
-            "instance_status": "not_wired",
-            "cpu_usage_pct": None,
-            "memory_usage_pct": None,
-            "disk_usage_pct": None,
-            "network_traffic": None,
-            "disk_traffic": None,
-            "uptime": None,
+            "instance_status": "healthy",
+            "cpu_usage_pct": round(psutil.cpu_percent(interval=0.1), 2),
+            "memory_usage_pct": round(vm.percent, 2),
+            "disk_usage_pct": round(du.percent, 2),
+            "network_traffic": {"bytes_sent": nio.bytes_sent, "bytes_recv": nio.bytes_recv},
+            "disk_traffic": {"read_bytes": dio.read_bytes if dio else 0, "write_bytes": dio.write_bytes if dio else 0},
+            "uptime_seconds": uptime_seconds,
         },
-        "docker_services": service_checks,
+        "docker_services": services,
         "resource_trends": {
             "cpu": [], "memory": [], "disk_io": [], "network_io": []
         },
         "storage": {
-            "db_size": None,
-            "disk_remaining": None,
+            "db_size_bytes": db_size_bytes,
+            "disk_remaining_bytes": du.free,
         },
     }
 
