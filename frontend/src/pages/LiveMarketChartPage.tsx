@@ -18,12 +18,22 @@ const RANGE_LIMIT: Record<'1h' | '6h' | '24h' | '7d', number> = {
   '7d': 10080,
 };
 
+function mergeCandles(prev: Candle[], incoming: Candle[]): Candle[] {
+  const byTime = new Map(prev.map((c) => [c.open_time, c]));
+  for (const candle of incoming) {
+    byTime.set(candle.open_time, candle);
+  }
+  return Array.from(byTime.values()).sort((a, b) => new Date(a.open_time).getTime() - new Date(b.open_time).getTime());
+}
+
 export function LiveMarketChartPage() {
   const [range, setRange] = useState<keyof typeof RANGE_LIMIT>('1h');
   const [polling, setPolling] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [candles, setCandles] = useState<Candle[]>([]);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
+  const [refreshStatus, setRefreshStatus] = useState<'Live' | 'Paused' | 'Error'>('Paused');
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
   const priceRef = useRef<HTMLDivElement | null>(null);
@@ -33,36 +43,42 @@ export function LiveMarketChartPage() {
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
 
-  const fetchCandles = async () => {
-    setLoading(true);
+  const fetchCandles = async (isIncremental = false) => {
+    if (!isIncremental) setLoading(true);
     try {
       const response = await fetch(`${apiBaseUrl}/candles?symbol=BTCUSDT&interval=1m&limit=${RANGE_LIMIT[range]}`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const payload = await response.json();
-      const normalized = ((payload.candles ?? []) as Candle[])
+      const incoming = ((payload.candles ?? []) as Candle[])
         .map((c) => ({ ...c, open: Number(c.open), high: Number(c.high), low: Number(c.low), close: Number(c.close), volume: Number(c.volume) }))
         .slice()
         .reverse();
 
-
-      setCandles(normalized);
+      setCandles((prev) => (isIncremental ? mergeCandles(prev, incoming) : incoming));
       setError(null);
+      setLastRefreshedAt(new Date().toISOString());
+      setRefreshStatus(polling ? 'Live' : 'Paused');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
+      setRefreshStatus('Error');
     } finally {
-      setLoading(false);
+      if (!isIncremental) setLoading(false);
     }
   };
 
   useEffect(() => {
-    void fetchCandles();
+    void fetchCandles(false);
   }, [range]);
 
   useEffect(() => {
-    if (!polling) return;
-    const timer = setInterval(() => void fetchCandles(), 10_000);
+    if (!polling) {
+      setRefreshStatus(error ? 'Error' : 'Paused');
+      return;
+    }
+    setRefreshStatus('Live');
+    const timer = setInterval(() => void fetchCandles(true), 10_000);
     return () => clearInterval(timer);
-  }, [polling, range]);
+  }, [polling, range, error]);
 
   const transformed = useMemo(
     () => candles
@@ -121,20 +137,8 @@ export function LiveMarketChartPage() {
   useEffect(() => {
     if (!candleSeriesRef.current || !volumeSeriesRef.current || transformed.length === 0) return;
 
-    candleSeriesRef.current.setData(transformed.map((c) => ({
-      time: c.time,
-      open: c.open,
-      high: c.high,
-      low: c.low,
-      close: c.close,
-    })));
-    volumeSeriesRef.current.setData(
-      transformed.map((c) => ({
-        time: c.time,
-        value: c.volume,
-        color: c.close >= c.open ? '#4f9b79aa' : '#b97584aa',
-      })),
-    );
+    candleSeriesRef.current.setData(transformed.map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })));
+    volumeSeriesRef.current.setData(transformed.map((c) => ({ time: c.time, value: c.volume, color: c.close >= c.open ? '#4f9b79aa' : '#b97584aa' })));
     priceChartRef.current?.timeScale().fitContent();
     volumeChartRef.current?.timeScale().fitContent();
   }, [transformed]);
@@ -153,17 +157,19 @@ export function LiveMarketChartPage() {
           {(['1h', '6h', '24h', '7d'] as const).map((r) => (
             <button key={r} onClick={() => setRange(r)} className={`rounded-lg px-3 py-1.5 text-xs ${range === r ? 'bg-surface-800 text-text-primary' : 'bg-surface-900 text-text-secondary ring-1 ring-surface-700/70'}`}>{r}</button>
           ))}
-          <button onClick={() => void fetchCandles()} className="rounded-lg bg-surface-900 px-3 py-1.5 text-xs text-text-secondary ring-1 ring-surface-700/70"><RefreshCw size={12} /></button>
+          <button onClick={() => void fetchCandles(true)} className="rounded-lg bg-surface-900 px-3 py-1.5 text-xs text-text-secondary ring-1 ring-surface-700/70"><RefreshCw size={12} /></button>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4 lg:grid-cols-8">
         <div className="rounded-lg bg-surface-900 p-2 ring-1 ring-surface-700/60">Symbol <div className="text-text-secondary">BTCUSDT</div></div>
         <div className="rounded-lg bg-surface-900 p-2 ring-1 ring-surface-700/60">Interval <div className="text-text-secondary">1m</div></div>
         <div className="rounded-lg bg-surface-900 p-2 ring-1 ring-surface-700/60">Latest Candle <div className="text-text-secondary">{latest?.open_time ?? '—'}</div></div>
         <div className="rounded-lg bg-surface-900 p-2 ring-1 ring-surface-700/60">Candle Count <div className="text-text-secondary">{candles.length}</div></div>
         <div className="rounded-lg bg-surface-900 p-2 ring-1 ring-surface-700/60">Lag Seconds <div className="text-text-secondary">{lagSeconds ?? '—'}</div></div>
-        <label className="flex items-center justify-between rounded-lg bg-surface-900 p-2 ring-1 ring-surface-700/60">Polling 10s <input type="checkbox" checked={polling} onChange={(e) => setPolling(e.target.checked)} /></label>
+        <div className="rounded-lg bg-surface-900 p-2 ring-1 ring-surface-700/60">Refresh <div className="text-text-secondary">{refreshStatus}</div></div>
+        <div className="rounded-lg bg-surface-900 p-2 ring-1 ring-surface-700/60">Last Refreshed <div className="text-text-secondary">{lastRefreshedAt ?? '—'}</div></div>
+        <label className="flex items-center justify-between rounded-lg bg-surface-900 p-2 ring-1 ring-surface-700/60">Live 10s <input type="checkbox" checked={polling} onChange={(e) => setPolling(e.target.checked)} /></label>
       </div>
 
       <section className="rounded-xl bg-surface-900 p-4 shadow-card ring-1 ring-surface-700/70">
