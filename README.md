@@ -33,12 +33,13 @@ Notes:
 
 ## Docker Compose Architecture
 
-`docker-compose.yml` defines seven services and two persistent volumes:
+`docker-compose.yml` defines eight services and three persistent volumes:
 
 - `db` (PostgreSQL 16)
 - `ingestor` (custom Python app image from `./app`)
 - `api` (custom Python app image from `./app`)
 - `research-ui` (Streamlit backtest research dashboard)
+- `frontend` (React/Vite production build served by Nginx)
 - `prometheus` (Prometheus v2.54.1)
 - `grafana` (Grafana 11.2.2)
 - `cadvisor` (container resource exporter)
@@ -57,7 +58,8 @@ Notes:
    - `ingestor:9100`
    - `cadvisor:8080/metrics`
 6. `research-ui` serves a local, read-only dashboard that consumes existing FastAPI backtest endpoints only.
-7. `grafana` reads Prometheus (and provisioned datasource config) to show operational dashboards, including container resource panels for `db`, `ingestor`, `api`, `prometheus`, and `grafana`.
+7. `frontend` serves the production React app on Nginx and proxies `/api/*` traffic to `api:8000` over the Compose network.
+8. `grafana` reads Prometheus (and provisioned datasource config) to show operational dashboards, including container resource panels for `db`, `ingestor`, `api`, `prometheus`, and `grafana`.
 
 ---
 
@@ -119,18 +121,26 @@ Notes:
   - loading/error states and optional auto-refresh
 - No strategy execution, async workers, paper/live trading, or portfolio actions are implemented in this UI.
 
-### 5) `prometheus` — Metrics scraper
+### 5) `frontend` — React/Vite production UI
+
+- Built with a multi-stage Dockerfile (`node:20-alpine` build stage + `nginx:alpine` runtime stage).
+- Runtime serves static `dist/` artifacts from Nginx on container port `80`.
+- SPA-safe routing is enabled via `try_files ... /index.html` fallback.
+- `/api/` is reverse-proxied to `http://api:8000/` (Compose service DNS), so browser traffic never needs container-localhost mappings.
+- Build-time API base URL uses `VITE_API_BASE_URL` (Compose default: `/api`).
+
+### 6) `prometheus` — Metrics scraper
 
 - Scrape interval/evaluation interval: `10s`.
 - Scrapes API, ingestor, and cAdvisor targets configured in `observability/prometheus/prometheus.yml`.
 
-### 6) `cadvisor` — Container resource exporter
+### 7) `cadvisor` — Container resource exporter
 
 - Exposes CPU, memory, restart, network, and filesystem I/O metrics for running containers.
 - Mounted read-only host paths allow cAdvisor to observe Docker runtime/container stats.
 - Scraped by Prometheus at `cadvisor:8080`.
 
-### 7) `grafana` — Visualization
+### 8) `grafana` — Visualization
 
 - Starts with provisioned datasources/dashboards from `observability/grafana/provisioning/...`.
 - Default login from Compose env:
@@ -146,6 +156,7 @@ Host-mapped ports from Compose:
 - `3000` → Grafana UI (`http://localhost:3000`)
 - `5432` → PostgreSQL
 - `8000` → API (`http://localhost:8000`)
+- `5173` → Frontend UI (`http://localhost:5173`)
 - `8501` → Backtest Research UI (`http://localhost:8501`)
 - `9090` → Prometheus UI (`http://localhost:9090`)
 - `8080` → cAdvisor UI/metrics (`http://localhost:8080`)
@@ -243,6 +254,23 @@ open http://localhost:8501
 ```
 
 The Streamlit dashboard is read-only and uses FastAPI backtest endpoints only.
+
+### Frontend production UI
+
+```bash
+curl -I http://localhost:5173
+```
+
+```bash
+curl -sS http://localhost:5173/api/health
+```
+
+```bash
+docker compose logs frontend --tail=100
+```
+
+- Open `http://localhost:5173` and verify operations/infrastructure pages and charts load.
+- API calls should flow through Nginx proxy (`/api/*`) to `api:8000` with no browser CORS errors.
 
 ### Backtest result APIs (read-only)
 
