@@ -5,6 +5,7 @@ import { MarketDataPage } from './pages/MarketDataPage';
 import { LiveMarketChartPage } from './pages/LiveMarketChartPage';
 import { SimplePlaceholderPage } from './pages/SimplePlaceholderPage';
 import { OperationsPage } from './pages/OperationsPage';
+import { InfrastructurePage } from './pages/InfrastructurePage';
 
 export default function App() {
   return (
@@ -18,7 +19,7 @@ export default function App() {
         <Route path="/agents" element={<SimplePlaceholderPage title="Agent Operations" notes={['OpenClaw orchestration', 'Agent monitoring', 'Autonomous backtest execution', 'Anomaly investigation', 'Supervised execution approval']} />} />
         <Route path="/operations" element={<OperationsPage />} />
         <Route path="/risk-control" element={<SimplePlaceholderPage title="Risk Control" notes={['Kill switch', 'Max drawdown controls', 'Emergency trading disable', 'Position exposure', 'Trade approval workflow']} />} />
-        <Route path="/infrastructure" element={<SimplePlaceholderPage title="Infrastructure" notes={['Cluster topology', 'Data bus latency', 'Storage replication', 'Secret rotation state']} />} />
+        <Route path="/infrastructure" element={<InfrastructurePage />} />
         <Route path="/settings" element={<SimplePlaceholderPage title="Settings" notes={['Exchange configs', 'Model configs', 'Deployment configs', 'Agent permissions']} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

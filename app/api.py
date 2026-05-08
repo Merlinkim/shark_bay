@@ -166,6 +166,43 @@ def ops_health() -> dict[str, Any]:
     return {"checked_at": datetime.now(timezone.utc).isoformat(), "services": checks}
 
 
+
+@app.get("/ops/infrastructure")
+def ops_infrastructure() -> dict[str, Any]:
+    import os
+
+    now = datetime.now(timezone.utc).isoformat()
+    service_checks = [
+        _probe_service("api", "http://api:8000/health"),
+        _probe_service("ingestor", None),
+        _probe_service("db", None),
+        _probe_service("prometheus", os.getenv("PROMETHEUS_URL", "http://prometheus:9090/-/healthy")),
+        _probe_service("grafana", os.getenv("GRAFANA_URL", "http://grafana:3000/api/health")),
+        _probe_service("cadvisor", os.getenv("CADVISOR_URL", "http://cadvisor:8080/metrics")),
+        _probe_service("research-ui", None),
+    ]
+
+    return {
+        "checked_at": now,
+        "host_overview": {
+            "instance_status": "not_wired",
+            "cpu_usage_pct": None,
+            "memory_usage_pct": None,
+            "disk_usage_pct": None,
+            "network_traffic": None,
+            "disk_traffic": None,
+            "uptime": None,
+        },
+        "docker_services": service_checks,
+        "resource_trends": {
+            "cpu": [], "memory": [], "disk_io": [], "network_io": []
+        },
+        "storage": {
+            "db_size": None,
+            "disk_remaining": None,
+        },
+    }
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "OK"}
