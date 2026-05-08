@@ -286,6 +286,8 @@ Expected JSON output fields:
 
 ```bash
 curl -sS http://localhost:8000/ingestion/status
+curl -sS http://localhost:8000/ops/health
+curl -sS http://localhost:8000/ops/infrastructure
 ```
 
 Includes:
@@ -355,6 +357,8 @@ Checks:
 ```bash
 docker compose logs --tail=200 ingestor
 curl -sS http://localhost:8000/ingestion/status
+curl -sS http://localhost:8000/ops/health
+curl -sS http://localhost:8000/ops/infrastructure
 ```
 
 Likely causes:
@@ -603,7 +607,25 @@ curl -sS http://localhost:8000/health/live
 curl -sS http://localhost:8000/health/ready
 curl -sS http://localhost:8000/ingestion/status
 python -m app.data_quality --symbol BTCUSDT --interval 1m --lookback-hours 2
+curl -sS http://localhost:8000/ops/health
+curl -sS http://localhost:8000/ops/infrastructure
 curl -sS http://localhost:9090/api/v1/targets
 ```
 
 For detailed failure triage and copy-paste debugging commands, see `docs/agent_debugging.md`.
+
+
+### Local React dev CORS
+
+For local Vite React development (`http://localhost:5173`), the API now supports configurable CORS origins using `CORS_ALLOW_ORIGINS`.
+
+Default local-safe value:
+
+```bash
+CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+```
+
+Notes:
+- No wildcard (`*`) origin is enabled by default.
+- Production should set `CORS_ALLOW_ORIGINS` explicitly to trusted origins only.
+
