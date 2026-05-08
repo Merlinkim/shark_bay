@@ -9,6 +9,7 @@ import { InfrastructurePage } from './pages/InfrastructurePage';
 import { StrategiesPage } from './pages/StrategiesPage';
 import { AgentsPage } from './pages/AgentsPage';
 import { RiskControlPage } from './pages/RiskControlPage';
+import { ResearchPage } from './pages/ResearchPage';
 
 export default function App() {
   return (
@@ -17,7 +18,7 @@ export default function App() {
         <Route path="/" element={<DashboardPage />} />
         <Route path="/market-data" element={<MarketDataPage />} />
         <Route path="/market-data/live-chart" element={<LiveMarketChartPage />} />
-        <Route path="/research" element={<SimplePlaceholderPage title="Research Workspace" notes={['Strategy registry', 'Parameter sweeps', 'Run comparison', 'AI-assisted analysis', 'Feature engineering']} />} />
+        <Route path="/research" element={<ResearchPage />} />
         <Route path="/strategies" element={<StrategiesPage />} />
         <Route path="/agents" element={<AgentsPage />} />
         <Route path="/operations" element={<OperationsPage />} />
