@@ -6,6 +6,7 @@ import { LiveMarketChartPage } from './pages/LiveMarketChartPage';
 import { SimplePlaceholderPage } from './pages/SimplePlaceholderPage';
 import { OperationsPage } from './pages/OperationsPage';
 import { InfrastructurePage } from './pages/InfrastructurePage';
+import { StrategiesPage } from './pages/StrategiesPage';
 
 export default function App() {
   return (
@@ -15,7 +16,7 @@ export default function App() {
         <Route path="/market-data" element={<MarketDataPage />} />
         <Route path="/market-data/live-chart" element={<LiveMarketChartPage />} />
         <Route path="/research" element={<SimplePlaceholderPage title="Research Workspace" notes={['Strategy registry', 'Parameter sweeps', 'Run comparison', 'AI-assisted analysis', 'Feature engineering']} />} />
-        <Route path="/strategies" element={<SimplePlaceholderPage title="Strategies" notes={['Execution graph', 'Versioned strategy manifests', 'Scenario simulation queue']} />} />
+        <Route path="/strategies" element={<StrategiesPage />} />
         <Route path="/agents" element={<SimplePlaceholderPage title="Agent Operations" notes={['OpenClaw orchestration', 'Agent monitoring', 'Autonomous backtest execution', 'Anomaly investigation', 'Supervised execution approval']} />} />
         <Route path="/operations" element={<OperationsPage />} />
         <Route path="/risk-control" element={<SimplePlaceholderPage title="Risk Control" notes={['Kill switch', 'Max drawdown controls', 'Emergency trading disable', 'Position exposure', 'Trade approval workflow']} />} />
