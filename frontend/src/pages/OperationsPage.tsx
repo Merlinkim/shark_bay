@@ -47,20 +47,28 @@ export function OperationsPage() {
   useEffect(() => {
     let alive = true;
     const poll = async () => {
-      const [prom, graf, cadv, db] = await Promise.allSettled([
-        timedFetch('http://localhost:9090/-/healthy'),
-        timedFetch('http://localhost:3000/api/health'),
-        timedFetch('http://localhost:8080/metrics'),
-        timedFetch('http://localhost:8000/health/ready'),
-      ]);
-      if (!alive) return;
-      const mapResult = (r: PromiseSettledResult<Awaited<ReturnType<typeof timedFetch>>>) => {
-        if (r.status === 'rejected') return { state: 'error' as CheckState, latencyMs: null, detail: 'unreachable' };
-        if (r.value.timeout) return { state: 'timeout' as CheckState, latencyMs: r.value.latencyMs, detail: 'timeout' };
-        if (!r.value.ok) return { state: 'error' as CheckState, latencyMs: r.value.latencyMs, detail: `http ${r.value.status}` };
-        return { state: r.value.latencyMs > 1500 ? 'pending' as CheckState : 'ready' as CheckState, latencyMs: r.value.latencyMs, detail: 'healthy' };
-      };
-      setExt({ prometheus: mapResult(prom), grafana: mapResult(graf), cadvisor: mapResult(cadv), db: mapResult(db) });
+      try {
+        const res = await fetch(`${import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'}/ops/health`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const payload = await res.json();
+        if (!alive) return;
+        const next: Record<string, { state: CheckState; latencyMs: number | null; detail: string }> = {};
+        for (const svc of payload.services ?? []) {
+          const map: Record<string, CheckState> = {
+            healthy: 'ready', degraded: 'pending', unreachable: 'error', timeout: 'timeout', not_configured: 'pending',
+          };
+          next[svc.service] = { state: map[svc.status] ?? 'pending', latencyMs: svc.latency_ms ?? null, detail: svc.detail ?? svc.status };
+        }
+        setExt(next);
+      } catch {
+        if (!alive) return;
+        setExt((prev) => ({
+          ...prev,
+          prometheus: { state: 'error', latencyMs: null, detail: 'ops health unavailable' },
+          grafana: { state: 'error', latencyMs: null, detail: 'ops health unavailable' },
+          cadvisor: { state: 'error', latencyMs: null, detail: 'ops health unavailable' },
+        }));
+      }
     };
     void poll();
     const timer = setInterval(() => void poll(), 10_000);

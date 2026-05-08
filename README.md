@@ -286,6 +286,7 @@ Expected JSON output fields:
 
 ```bash
 curl -sS http://localhost:8000/ingestion/status
+curl -sS http://localhost:8000/ops/health
 ```
 
 Includes:
@@ -355,6 +356,7 @@ Checks:
 ```bash
 docker compose logs --tail=200 ingestor
 curl -sS http://localhost:8000/ingestion/status
+curl -sS http://localhost:8000/ops/health
 ```
 
 Likely causes:
@@ -598,6 +600,7 @@ curl -sS http://localhost:8000/health
 curl -sS http://localhost:8000/health/live
 curl -sS http://localhost:8000/health/ready
 curl -sS http://localhost:8000/ingestion/status
+curl -sS http://localhost:8000/ops/health
 curl -sS http://localhost:9090/api/v1/targets
 ```
 

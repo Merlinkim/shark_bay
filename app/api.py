@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 import psycopg
+import requests
 from psycopg.rows import dict_row
 
 from app.metrics import api_request_latency_seconds, api_request_total, db_connection_status
@@ -130,6 +131,39 @@ def decimal_to_float(v: Any) -> Any:
     if isinstance(v, Decimal):
         return float(v)
     return v
+
+
+def _probe_service(name: str, url: str | None, timeout_seconds: float = 3.0) -> dict[str, Any]:
+    checked_at = datetime.now(timezone.utc).isoformat()
+    if not url:
+        return {"service": name, "status": "not_configured", "latency_ms": None, "checked_at": checked_at, "detail": "url not configured"}
+    start = time.time()
+    try:
+        response = requests.get(url, timeout=timeout_seconds)
+        latency_ms = round((time.time() - start) * 1000, 2)
+        if response.ok:
+            status = "healthy" if latency_ms <= 1500 else "degraded"
+            return {"service": name, "status": status, "latency_ms": latency_ms, "checked_at": checked_at}
+        return {"service": name, "status": "unreachable", "latency_ms": latency_ms, "checked_at": checked_at, "detail": f"http {response.status_code}"}
+    except requests.Timeout:
+        latency_ms = round((time.time() - start) * 1000, 2)
+        return {"service": name, "status": "timeout", "latency_ms": latency_ms, "checked_at": checked_at, "detail": "request timeout"}
+    except Exception as exc:
+        latency_ms = round((time.time() - start) * 1000, 2)
+        return {"service": name, "status": "unreachable", "latency_ms": latency_ms, "checked_at": checked_at, "detail": str(exc)}
+
+
+@app.get("/ops/health")
+def ops_health() -> dict[str, Any]:
+    import os
+
+    services = [
+        ("prometheus", os.getenv("PROMETHEUS_URL", "http://prometheus:9090/-/healthy")),
+        ("grafana", os.getenv("GRAFANA_URL", "http://grafana:3000/api/health")),
+        ("cadvisor", os.getenv("CADVISOR_URL", "http://cadvisor:8080/metrics")),
+    ]
+    checks = [_probe_service(name, url) for name, url in services]
+    return {"checked_at": datetime.now(timezone.utc).isoformat(), "services": checks}
 
 
 @app.get("/health")
