@@ -12,6 +12,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 import psycopg
 import requests
 import psutil
+import platform
 from psycopg.rows import dict_row
 
 from app.metrics import api_request_latency_seconds, api_request_total, db_connection_status
@@ -226,6 +227,10 @@ def ops_infrastructure() -> dict[str, Any]:
             "network_traffic": {"bytes_sent": nio.bytes_sent, "bytes_recv": nio.bytes_recv},
             "disk_traffic": {"read_bytes": dio.read_bytes if dio else 0, "write_bytes": dio.write_bytes if dio else 0},
             "uptime_seconds": uptime_seconds,
+            "host_name": platform.node(),
+            "platform": platform.platform(),
+            "kernel": platform.release(),
+            "docker_engine_reachable": None,
         },
         "docker_services": services,
         "resource_trends": {
