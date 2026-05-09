@@ -78,6 +78,21 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertIn('sma_crossover', r.json()['strategies'])
 
+    @patch('app.api.build_snapshot')
+    def test_research_features_shape(self, snapshot_mock):
+        snapshot_mock.return_value = {
+            'symbol': 'BTCUSDT', 'interval': '1m', 'lookback_hours': 24, 'rows_used': 30,
+            'latest_open_time': '2026-01-01T00:00:00+00:00',
+            'features': {'return_1m': 0.1, 'regime_label': 'trend'},
+            'quality': {'status': 'ok', 'gaps_detected': 0, 'notes': []},
+        }
+        r = self.client.get('/research/features')
+        self.assertEqual(r.status_code, 200)
+        payload = r.json()
+        self.assertIn('features', payload)
+        self.assertIn('quality', payload)
+
+
 
 if __name__ == '__main__':
     unittest.main()
