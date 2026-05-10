@@ -96,6 +96,21 @@ class TestAPI(unittest.TestCase):
         self.assertIn('quality', payload)
 
 
+    @patch('app.api.run_deterministic_placeholder_experiment')
+    def test_research_experiments_latest(self, experiment_mock):
+        experiment_mock.return_value = {
+            'experiment_id': 'e1', 'strategy_name': 'ema_cross_v1', 'strategy_version': 'v0',
+            'symbol': 'BTCUSDT', 'interval': '1m', 'dataset_start': None, 'dataset_end': None,
+            'dataset_row_count': 0, 'dataset_fingerprint': 'f', 'parameters': {}, 'features_used': [],
+            'intended_regime': 'trend', 'risk_profile': 'medium', 'total_return_pct': 0.0, 'sharpe': 0.0,
+            'max_drawdown_pct': 0.0, 'win_rate_pct': 0.0, 'trade_count': 0, 'status': 'simulated_placeholder',
+            'created_at': '2026-01-01T00:00:00+00:00',
+        }
+        r = self.client.get('/research/experiments/latest')
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('experiments', r.json())
+
+
 
 if __name__ == '__main__':
     unittest.main()

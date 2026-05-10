@@ -12,6 +12,31 @@ export type ResearchFeatureResponse = {
   quality: { status: string; gaps_detected: number; notes: string[] };
 };
 
+
+
+export type ExperimentResult = {
+  experiment_id: string;
+  strategy_name: string;
+  strategy_version: string;
+  symbol: string;
+  interval: string;
+  dataset_start: string | null;
+  dataset_end: string | null;
+  dataset_row_count: number;
+  dataset_fingerprint: string;
+  parameters: Record<string, unknown>;
+  features_used: string[];
+  intended_regime: string;
+  risk_profile: string;
+  total_return_pct: number;
+  sharpe: number;
+  max_drawdown_pct: number;
+  win_rate_pct: number;
+  trade_count: number;
+  status: string;
+  created_at: string;
+};
+
 export type StrategyRegistrySpec = {
   strategy_name: string;
   display_name: string;
@@ -40,4 +65,5 @@ export const api = {
   ingestionStatus: () => getJson<IngestionApiResponse>('/ingestion/status'),
   researchFeatures: (symbol = 'BTCUSDT', interval = '1m', lookbackHours = 24) => getJson<ResearchFeatureResponse>(`/research/features?symbol=${symbol}&interval=${interval}&lookback_hours=${lookbackHours}`),
   strategyRegistry: () => getJson<{ strategies: StrategyRegistrySpec[] }>('/strategies/registry'),
+  latestExperiments: (symbol = 'BTCUSDT', interval = '1m') => getJson<{ experiments: ExperimentResult[] }>(`/research/experiments/latest?symbol=${symbol}&interval=${interval}`),
 };
