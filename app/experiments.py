@@ -7,6 +7,8 @@ import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
+import psycopg
+from psycopg.rows import dict_row
 
 from app.backtest import Candle, CandleRepository
 from app.strategy_registry import list_strategy_specs
@@ -33,7 +35,115 @@ class ExperimentResult:
     win_rate_pct: float
     trade_count: int
     status: str
+    is_simulated: bool
     created_at: str
+
+
+SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS research_experiments (
+  experiment_id TEXT PRIMARY KEY,
+  strategy_name TEXT NOT NULL,
+  strategy_version TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  interval TEXT NOT NULL,
+  dataset_start TIMESTAMPTZ,
+  dataset_end TIMESTAMPTZ,
+  dataset_row_count INTEGER NOT NULL,
+  dataset_fingerprint TEXT NOT NULL,
+  parameters JSONB NOT NULL,
+  features_used JSONB NOT NULL,
+  intended_regime TEXT NOT NULL,
+  risk_profile TEXT NOT NULL,
+  total_return_pct DOUBLE PRECISION NOT NULL,
+  sharpe DOUBLE PRECISION NOT NULL,
+  max_drawdown_pct DOUBLE PRECISION NOT NULL,
+  win_rate_pct DOUBLE PRECISION NOT NULL,
+  trade_count INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  is_simulated BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_research_experiments_symbol_interval_created_at
+  ON research_experiments (symbol, interval, created_at DESC);
+"""
+
+
+class ResearchExperimentRepository:
+    def __init__(self, db_url: str):
+        self.db_url = db_url
+
+    def ensure_schema(self) -> None:
+        with psycopg.connect(self.db_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(SCHEMA_SQL)
+
+    def upsert(self, result: ExperimentResult) -> None:
+        with psycopg.connect(self.db_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO research_experiments (
+                      experiment_id, strategy_name, strategy_version, symbol, interval,
+                      dataset_start, dataset_end, dataset_row_count, dataset_fingerprint,
+                      parameters, features_used, intended_regime, risk_profile,
+                      total_return_pct, sharpe, max_drawdown_pct, win_rate_pct, trade_count,
+                      status, is_simulated, created_at
+                    ) VALUES (
+                      %(experiment_id)s, %(strategy_name)s, %(strategy_version)s, %(symbol)s, %(interval)s,
+                      %(dataset_start)s, %(dataset_end)s, %(dataset_row_count)s, %(dataset_fingerprint)s,
+                      %(parameters)s::jsonb, %(features_used)s::jsonb, %(intended_regime)s, %(risk_profile)s,
+                      %(total_return_pct)s, %(sharpe)s, %(max_drawdown_pct)s, %(win_rate_pct)s, %(trade_count)s,
+                      %(status)s, %(is_simulated)s, %(created_at)s
+                    )
+                    ON CONFLICT (experiment_id) DO UPDATE SET
+                      strategy_name = EXCLUDED.strategy_name,
+                      strategy_version = EXCLUDED.strategy_version,
+                      symbol = EXCLUDED.symbol,
+                      interval = EXCLUDED.interval,
+                      dataset_start = EXCLUDED.dataset_start,
+                      dataset_end = EXCLUDED.dataset_end,
+                      dataset_row_count = EXCLUDED.dataset_row_count,
+                      dataset_fingerprint = EXCLUDED.dataset_fingerprint,
+                      parameters = EXCLUDED.parameters,
+                      features_used = EXCLUDED.features_used,
+                      intended_regime = EXCLUDED.intended_regime,
+                      risk_profile = EXCLUDED.risk_profile,
+                      total_return_pct = EXCLUDED.total_return_pct,
+                      sharpe = EXCLUDED.sharpe,
+                      max_drawdown_pct = EXCLUDED.max_drawdown_pct,
+                      win_rate_pct = EXCLUDED.win_rate_pct,
+                      trade_count = EXCLUDED.trade_count,
+                      status = EXCLUDED.status,
+                      is_simulated = EXCLUDED.is_simulated,
+                      created_at = EXCLUDED.created_at
+                    """,
+                    {
+                        **asdict(result),
+                        "parameters": json.dumps(result.parameters),
+                        "features_used": json.dumps(result.features_used),
+                    },
+                )
+
+    def list_latest(self, symbol: str, interval: str, limit: int) -> list[dict[str, Any]]:
+        with psycopg.connect(self.db_url, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT * FROM research_experiments
+                    WHERE symbol = %s AND interval = %s
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                    """,
+                    (symbol, interval, limit),
+                )
+                return cur.fetchall()
+
+    def get(self, experiment_id: str) -> dict[str, Any] | None:
+        with psycopg.connect(self.db_url, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM research_experiments WHERE experiment_id = %s", (experiment_id,))
+                return cur.fetchone()
 
 
 def _now_iso() -> str:
@@ -100,6 +210,7 @@ def run_deterministic_placeholder_experiment(strategy_name: str, symbol: str, in
             win_rate_pct=0.0,
             trade_count=0,
             status="simulated_placeholder_insufficient_data",
+            is_simulated=True,
             created_at=created_at,
         )
 
@@ -157,6 +268,7 @@ def run_deterministic_placeholder_experiment(strategy_name: str, symbol: str, in
         win_rate_pct=round(win_rate, 6),
         trade_count=trade_count,
         status="simulated_placeholder",
+        is_simulated=True,
         created_at=created_at,
     )
 
@@ -167,6 +279,7 @@ def main() -> None:
     parser.add_argument("--symbol", required=True)
     parser.add_argument("--interval", default="1m")
     parser.add_argument("--lookback-hours", type=int, default=24)
+    parser.add_argument("--persist", action="store_true")
     args = parser.parse_args()
 
     import os
@@ -182,6 +295,10 @@ def main() -> None:
         lookback_hours=args.lookback_hours,
         db_url=db_url,
     )
+    if args.persist:
+        repo = ResearchExperimentRepository(db_url)
+        repo.ensure_schema()
+        repo.upsert(result)
     print(json.dumps(asdict(result), indent=2, sort_keys=True))
 
 
