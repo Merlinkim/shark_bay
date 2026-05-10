@@ -657,3 +657,19 @@ Notes:
 - No wildcard (`*`) origin is enabled by default.
 - Production should set `CORS_ALLOW_ORIGINS` explicitly to trusted origins only.
 
+
+## Research Layer v0 (read-only feature telemetry)
+
+CLI snapshot from `candles_1m`:
+
+```bash
+python -m app.features --symbol BTCUSDT --interval 1m --lookback-hours 24
+```
+
+API endpoint:
+
+```bash
+curl "http://localhost:8000/research/features?symbol=BTCUSDT&interval=1m&lookback_hours=24"
+```
+
+This research telemetry surface is deterministic and read-only. It computes feature engineering outputs only (no execution, paper trading, or order controls).

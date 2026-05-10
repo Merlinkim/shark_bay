@@ -17,6 +17,7 @@ from psycopg.rows import dict_row
 
 from app.metrics import api_request_latency_seconds, api_request_total, db_connection_status
 from app.observability import StructuredLogger, configure_logging
+from app.features import build_snapshot
 from app.backtest import (
     BacktestRunRepository,
     CandleRepository,
@@ -451,6 +452,21 @@ def run_backtest(request: BacktestRunRequest):
             "win_rate": result.win_rate_pct,
         },
     }
+
+
+@app.get("/research/features")
+def research_features(
+    symbol: str = Query("BTCUSDT", min_length=3, max_length=20, pattern=r"^[A-Z0-9]+$"),
+    interval: str = Query("1m", pattern=r"^(1m)$"),
+    lookback_hours: int = Query(24, ge=1, le=24*30),
+):
+    try:
+        return build_snapshot(symbol=symbol, interval=interval, lookback_hours=lookback_hours)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except psycopg.Error:
+        logger.exception("database_error_fetching_research_features")
+        raise HTTPException(status_code=500, detail="Database error")
 
 
 @app.exception_handler(RuntimeError)
