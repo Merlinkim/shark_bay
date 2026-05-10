@@ -19,6 +19,7 @@ from app.metrics import api_request_latency_seconds, api_request_total, db_conne
 from app.observability import StructuredLogger, configure_logging
 from app.features import build_snapshot
 from app.strategy_registry import list_strategy_specs
+from app.experiments import ExperimentResult, run_deterministic_placeholder_experiment
 from app.backtest import (
     BacktestRunRepository,
     CandleRepository,
@@ -478,6 +479,52 @@ def research_features(
         logger.exception("database_error_fetching_research_features")
         raise HTTPException(status_code=500, detail="Database error")
 
+
+
+
+@app.get("/research/experiments/run")
+def run_research_experiment(
+    strategy: str = Query("ema_cross_v1"),
+    symbol: str = Query("BTCUSDT", min_length=3, max_length=20, pattern=r"^[A-Z0-9]+$"),
+    interval: str = Query("1m", pattern=r"^(1m)$"),
+    lookback_hours: int = Query(24, ge=1, le=24*30),
+):
+    try:
+        result = run_deterministic_placeholder_experiment(
+            strategy_name=strategy,
+            symbol=symbol,
+            interval=interval,
+            lookback_hours=lookback_hours,
+            db_url=get_db_url(),
+        )
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except psycopg.Error:
+        logger.exception("database_error_running_research_experiment")
+        raise HTTPException(status_code=500, detail="Database error")
+
+
+@app.get("/research/experiments/latest")
+def latest_research_experiments(
+    symbol: str = Query("BTCUSDT", min_length=3, max_length=20, pattern=r"^[A-Z0-9]+$"),
+    interval: str = Query("1m", pattern=r"^(1m)$"),
+):
+    strategies = list_strategy_specs(symbol=symbol, interval=interval)
+    results = []
+    for spec in strategies:
+        try:
+            results.append(run_deterministic_placeholder_experiment(
+                strategy_name=spec["strategy_name"],
+                symbol=symbol,
+                interval=interval,
+                lookback_hours=24,
+                db_url=get_db_url(),
+            ))
+        except ValueError:
+            continue
+    results.sort(key=lambda x: x.created_at, reverse=True)
+    return {"experiments": results}
 
 @app.exception_handler(RuntimeError)
 def runtime_error_handler(_, exc: RuntimeError):

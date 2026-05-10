@@ -689,3 +689,23 @@ curl "http://localhost:8000/strategies/registry?status=research_ready&symbol=BTC
 ```
 
 This layer is deterministic and metadata-only (no live trading, paper trading, or order execution).
+
+## Backtest Experiment Layer v0
+
+Read-only deterministic experiment runs are available for research workflows.
+
+### CLI
+
+```bash
+python -m app.experiments --strategy ema_cross_v1 --symbol BTCUSDT --interval 1m --lookback-hours 24
+```
+
+### API
+
+- `GET /research/experiments/latest?symbol=BTCUSDT&interval=1m`
+- `GET /research/experiments/run?strategy=ema_cross_v1&symbol=BTCUSDT&interval=1m&lookback_hours=24`
+
+Notes:
+- v0 experiments are deterministic and read-only.
+- v0 uses simulated placeholder backtest logic where full execution is not implemented.
+- No paper/live trading and no order execution is performed by these experiment endpoints.
