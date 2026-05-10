@@ -673,3 +673,19 @@ curl "http://localhost:8000/research/features?symbol=BTCUSDT&interval=1m&lookbac
 ```
 
 This research telemetry surface is deterministic and read-only. It computes feature engineering outputs only (no execution, paper trading, or order controls).
+
+## Strategy Registry v0 (Deterministic Metadata Layer)
+
+A read-only strategy metadata registry is available for connecting research features to upcoming backtest and paper-trading workflows, without enabling execution.
+
+- Module: `app/strategy_registry.py`
+- CLI: `python -m app.strategy_registry`
+- API: `GET /strategies/registry`
+
+Example:
+
+```bash
+curl "http://localhost:8000/strategies/registry?status=research_ready&symbol=BTCUSDT&interval=1m"
+```
+
+This layer is deterministic and metadata-only (no live trading, paper trading, or order execution).

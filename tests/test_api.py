@@ -74,9 +74,12 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(r.json()[0]['point_index'], 0)
 
     def test_strategy_registry(self):
-        r = self.client.get('/strategies')
+        r = self.client.get('/strategies/registry')
         self.assertEqual(r.status_code, 200)
-        self.assertIn('sma_crossover', r.json()['strategies'])
+        payload = r.json()
+        self.assertIn('strategies', payload)
+        self.assertIsInstance(payload['strategies'], list)
+        self.assertIn('strategy_name', payload['strategies'][0])
 
     @patch('app.api.build_snapshot')
     def test_research_features_shape(self, snapshot_mock):

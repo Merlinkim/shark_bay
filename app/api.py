@@ -18,6 +18,7 @@ from psycopg.rows import dict_row
 from app.metrics import api_request_latency_seconds, api_request_total, db_connection_status
 from app.observability import StructuredLogger, configure_logging
 from app.features import build_snapshot
+from app.strategy_registry import list_strategy_specs
 from app.backtest import (
     BacktestRunRepository,
     CandleRepository,
@@ -342,6 +343,15 @@ def _get_backtest_repo() -> BacktestRunRepository:
 @app.get("/strategies")
 def list_strategies():
     return {"strategies": get_strategy_registry_metadata()}
+
+
+@app.get("/strategies/registry")
+def list_strategy_registry(
+    status: str | None = Query(default=None),
+    symbol: str | None = Query(default=None),
+    interval: str | None = Query(default=None),
+):
+    return {"strategies": list_strategy_specs(status=status, symbol=symbol, interval=interval)}
 
 
 @app.get("/backtests", response_model=list[BacktestRunSummary])
