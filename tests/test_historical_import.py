@@ -1,0 +1,112 @@
+import io
+import zipfile
+from argparse import Namespace
+
+from app import historical_import
+
+
+def _zip_bytes(csv_text: str) -> bytes:
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("sample.csv", csv_text)
+    return out.getvalue()
+
+
+def test_build_url():
+    url = historical_import.build_url("BTCUSDT", "1m", "2024-01")
+    assert url.endswith("/BTCUSDT/1m/BTCUSDT-1m-2024-01.zip")
+
+
+def test_parse_zip_rows():
+    rows = list(historical_import.parse_zip_rows(_zip_bytes("1,2,3\n4,5,6\n")))
+    assert rows == [["1", "2", "3"], ["4", "5", "6"]]
+
+
+def test_missing_file_handling(monkeypatch):
+    class R:
+        status_code = 404
+        content = b""
+
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(historical_import.requests, "get", lambda *a, **k: R())
+    summary = historical_import.run_import(
+        Namespace(symbol="BTCUSDT", interval="1m", months=1, start_month="2020-01", end_month="2020-01", dry_run=True, max_months=None, sleep_seconds=0.0, skip_existing=False, run_quality_check=False)
+    )
+    assert summary.missing_months == ["2020-01"]
+
+
+def test_dry_run_behavior(monkeypatch):
+    csv = "1713744000000,65000,65100,64900,65010,1,1713744059999,0,10,0.5,32500,0\n"
+
+    class R:
+        status_code = 200
+        content = _zip_bytes(csv)
+
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(historical_import.requests, "get", lambda *a, **k: R())
+    summary = historical_import.run_import(
+        Namespace(symbol="BTCUSDT", interval="1m", months=1, start_month="2020-01", end_month="2020-01", dry_run=True, max_months=None, sleep_seconds=0.0, skip_existing=False, run_quality_check=False)
+    )
+    assert summary.imported_rows == 1
+    assert summary.upserted_rows == 0
+
+
+def test_normalize_historical_row_uses_millisecond_timestamps():
+    row = ["1735689600000", "1", "2", "0.5", "1.5", "10", "1735689659999", "0", "1", "0", "0", "0"]
+    candle = historical_import._normalize_historical_kline_row(row)
+    assert candle["open_time"].year == 2025
+    assert candle["close_time"].year == 2025
+
+
+def test_normalize_historical_row_supports_second_timestamps():
+    row = ["1735689600", "1", "2", "0.5", "1.5", "10", "1735689659", "0", "1", "0", "0", "0"]
+    candle = historical_import._normalize_historical_kline_row(row)
+    assert candle["open_time"].year == 2025
+    assert candle["close_time"].year == 2025
+
+
+def test_regression_binance_monthly_ms_row_no_year_overflow(monkeypatch):
+    # Real-like Binance Vision monthly row shape (open/close timestamps in milliseconds).
+    csv = "1735689600000,93563.82,93607.43,93475.95,93520.57,18.36789,1735689659999,1717932.12345,1678,7.89123,738123.55123,0\n"
+
+    class R:
+        status_code = 200
+        content = _zip_bytes(csv)
+
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(historical_import.requests, "get", lambda *a, **k: R())
+    summary = historical_import.run_import(
+        Namespace(symbol="BTCUSDT", interval="1m", months=1, start_month="2025-01", end_month="2025-01", dry_run=True, max_months=None, sleep_seconds=0.0, skip_existing=False, run_quality_check=False)
+    )
+    assert summary.imported_rows == 1
+    assert summary.errors == []
+
+
+def test_parse_microsecond_timestamps_to_expected_utc():
+    row = ["1735689600000000", "1", "2", "0.5", "1.5", "10", "1735689659999999", "0", "1", "0", "0", "0"]
+    candle = historical_import._normalize_historical_kline_row(row)
+    assert candle["open_time"].isoformat() == "2025-01-01T00:00:00+00:00"
+
+
+def test_regression_binance_monthly_microsecond_row(monkeypatch):
+    csv = "1735689600000000,93563.82,93607.43,93475.95,93520.57,18.36789,1735689659999999,1717932.12345,1678,7.89123,738123.55123,0\n"
+
+    class R:
+        status_code = 200
+        content = _zip_bytes(csv)
+
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(historical_import.requests, "get", lambda *a, **k: R())
+    summary = historical_import.run_import(
+        Namespace(symbol="BTCUSDT", interval="1m", months=1, start_month="2025-01", end_month="2025-01", dry_run=True, max_months=None, sleep_seconds=0.0, skip_existing=False, run_quality_check=False)
+    )
+    assert summary.imported_rows == 1
+    assert summary.errors == []
