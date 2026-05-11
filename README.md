@@ -542,6 +542,28 @@ python -m app.import_binance_klines --file ./BTCUSDT-1m-2026-04.csv --symbol BTC
 python -m app.import_binance_klines --file ./BTCUSDT-1m-2026-04.zip --symbol BTCUSDT --interval 1m --dry-run
 ```
 
+### Historical Import Layer v0
+
+For deterministic long-range research/backtesting, use the monthly Binance Vision importer to pull historical spot klines (initial target: BTCUSDT 1m, up to 80 months where available).
+
+Source pattern:
+
+`https://data.binance.vision/data/spot/monthly/klines/{symbol}/{interval}/{symbol}-{interval}-{YYYY-MM}.zip`
+
+Examples:
+
+```bash
+python -m app.historical_import --symbol BTCUSDT --interval 1m --months 80
+python -m app.historical_import --symbol BTCUSDT --interval 1m --start-month 2020-01 --end-month 2026-04
+python -m app.historical_import --symbol BTCUSDT --interval 1m --months 80 --dry-run
+python -m app.historical_import --symbol BTCUSDT --interval 1m --months 80 --skip-existing --sleep-seconds 0.2
+```
+
+Notes:
+- Binance monthly availability varies by symbol/month; missing files are skipped and reported.
+- Large imports can take significant time, network bandwidth, and disk space.
+- Import is idempotent through duplicate-safe upsert behavior in `candles_1m`.
+
 DB verification query:
 
 ```bash
