@@ -73,9 +73,10 @@ def parse_zip_rows(content: bytes) -> Iterable[list[str]]:
 
 def _parse_binance_timestamp(raw_ts: str) -> datetime:
     ts = int(raw_ts)
-    # Binance Vision is expected to be milliseconds, but defensively support seconds.
-    if ts > 10_000_000_000:  # > year 2286 in seconds, likely milliseconds
-        return datetime.fromtimestamp(ts / 1000, tz=timezone.utc)
+    if ts >= 1_000_000_000_000_000:
+        return datetime.fromtimestamp(ts / 1_000_000, tz=timezone.utc)
+    if ts >= 1_000_000_000_000:
+        return datetime.fromtimestamp(ts / 1_000, tz=timezone.utc)
     return datetime.fromtimestamp(ts, tz=timezone.utc)
 
 

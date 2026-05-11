@@ -86,3 +86,27 @@ def test_regression_binance_monthly_ms_row_no_year_overflow(monkeypatch):
     )
     assert summary.imported_rows == 1
     assert summary.errors == []
+
+
+def test_parse_microsecond_timestamps_to_expected_utc():
+    row = ["1735689600000000", "1", "2", "0.5", "1.5", "10", "1735689659999999", "0", "1", "0", "0", "0"]
+    candle = historical_import._normalize_historical_kline_row(row)
+    assert candle["open_time"].isoformat() == "2025-01-01T00:00:00+00:00"
+
+
+def test_regression_binance_monthly_microsecond_row(monkeypatch):
+    csv = "1735689600000000,93563.82,93607.43,93475.95,93520.57,18.36789,1735689659999999,1717932.12345,1678,7.89123,738123.55123,0\n"
+
+    class R:
+        status_code = 200
+        content = _zip_bytes(csv)
+
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(historical_import.requests, "get", lambda *a, **k: R())
+    summary = historical_import.run_import(
+        Namespace(symbol="BTCUSDT", interval="1m", months=1, start_month="2025-01", end_month="2025-01", dry_run=True, max_months=None, sleep_seconds=0.0, skip_existing=False, run_quality_check=False)
+    )
+    assert summary.imported_rows == 1
+    assert summary.errors == []
