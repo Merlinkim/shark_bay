@@ -719,3 +719,29 @@ Notes:
 - v0 experiments are deterministic and read-only.
 - v0 uses simulated placeholder backtest logic where full execution is not implemented.
 - Research memory is read-only analytical storage, not trading execution.
+
+## Research Analytics Layer v0
+
+Read-only analytics are available over persisted deterministic/simulated `research_experiments` records.
+No live trading, paper trading, order execution, or agent execution is performed by this layer.
+
+### API endpoint
+
+```bash
+curl "http://localhost:8000/research/analytics?symbol=BTCUSDT&interval=1m&limit=100"
+```
+
+Response shape includes:
+- `summary`
+- `strategy_leaderboard`
+- `regime_breakdown`
+- `recent_rankings`
+- `generated_at`
+
+### CLI usage
+
+```bash
+python -m app.research_analytics --symbol BTCUSDT --interval 1m --limit 100
+```
+
+This prints analytics JSON computed from persisted research memory only.

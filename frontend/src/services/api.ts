@@ -67,4 +67,19 @@ export const api = {
   researchFeatures: (symbol = 'BTCUSDT', interval = '1m', lookbackHours = 24) => getJson<ResearchFeatureResponse>(`/research/features?symbol=${symbol}&interval=${interval}&lookback_hours=${lookbackHours}`),
   strategyRegistry: () => getJson<{ strategies: StrategyRegistrySpec[] }>('/strategies/registry'),
   latestExperiments: (symbol = 'BTCUSDT', interval = '1m', limit = 20) => getJson<{ experiments: ExperimentResult[] }>(`/research/experiments/latest?symbol=${symbol}&interval=${interval}&limit=${limit}`),
+  researchAnalytics: (symbol = 'BTCUSDT', interval = '1m', limit = 100) => getJson<ResearchAnalyticsResponse>(`/research/analytics?symbol=${symbol}&interval=${interval}&limit=${limit}`),
+};
+
+
+export type ResearchAnalyticsResponse = {
+  summary: {
+    total_experiments: number;
+    best_strategy_by_sharpe: { strategy_name: string; sharpe: number; experiment_id: string } | null;
+    best_strategy_by_return: { strategy_name: string; total_return_pct: number; experiment_id: string } | null;
+    worst_strategy_by_drawdown: { strategy_name: string; max_drawdown_pct: number; experiment_id: string } | null;
+  };
+  strategy_leaderboard: Array<{ strategy_name: string; experiments: number; average_sharpe: number; average_return_pct: number; win_rate_pct: number; trade_count: number; average_drawdown_pct: number }>;
+  regime_breakdown: Array<{ regime: string; experiments: number; average_sharpe: number; average_return_pct: number; average_drawdown_pct: number; average_win_rate_pct: number }>;
+  recent_rankings: Array<{ experiment_id: string; strategy_name: string; sharpe: number; total_return_pct: number; max_drawdown_pct: number; created_at: string }>;
+  generated_at: string;
 };

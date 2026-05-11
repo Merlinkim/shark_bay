@@ -119,5 +119,14 @@ class TestAPI(unittest.TestCase):
 
 
 
+
+
+    @patch('app.api._get_research_experiment_repo')
+    def test_research_analytics_empty(self, repo_factory):
+        repo_factory.return_value.list_latest.return_value = []
+        r = self.client.get('/research/analytics')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['summary']['total_experiments'], 0)
+
 if __name__ == '__main__':
     unittest.main()
