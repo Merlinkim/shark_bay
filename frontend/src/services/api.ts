@@ -34,6 +34,7 @@ export type ExperimentResult = {
   win_rate_pct: number;
   trade_count: number;
   status: string;
+  is_simulated: boolean;
   created_at: string;
 };
 
@@ -65,5 +66,5 @@ export const api = {
   ingestionStatus: () => getJson<IngestionApiResponse>('/ingestion/status'),
   researchFeatures: (symbol = 'BTCUSDT', interval = '1m', lookbackHours = 24) => getJson<ResearchFeatureResponse>(`/research/features?symbol=${symbol}&interval=${interval}&lookback_hours=${lookbackHours}`),
   strategyRegistry: () => getJson<{ strategies: StrategyRegistrySpec[] }>('/strategies/registry'),
-  latestExperiments: (symbol = 'BTCUSDT', interval = '1m') => getJson<{ experiments: ExperimentResult[] }>(`/research/experiments/latest?symbol=${symbol}&interval=${interval}`),
+  latestExperiments: (symbol = 'BTCUSDT', interval = '1m', limit = 20) => getJson<{ experiments: ExperimentResult[] }>(`/research/experiments/latest?symbol=${symbol}&interval=${interval}&limit=${limit}`),
 };

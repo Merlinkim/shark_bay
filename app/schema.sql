@@ -102,3 +102,30 @@ CREATE TABLE IF NOT EXISTS backtest_fills (
 );
 
 CREATE INDEX IF NOT EXISTS idx_backtest_fills_run_open_time ON backtest_fills (run_id, open_time);
+
+CREATE TABLE IF NOT EXISTS research_experiments (
+  experiment_id TEXT PRIMARY KEY,
+  strategy_name TEXT NOT NULL,
+  strategy_version TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  interval TEXT NOT NULL,
+  dataset_start TIMESTAMPTZ,
+  dataset_end TIMESTAMPTZ,
+  dataset_row_count INTEGER NOT NULL,
+  dataset_fingerprint TEXT NOT NULL,
+  parameters JSONB NOT NULL,
+  features_used JSONB NOT NULL,
+  intended_regime TEXT NOT NULL,
+  risk_profile TEXT NOT NULL,
+  total_return_pct DOUBLE PRECISION NOT NULL,
+  sharpe DOUBLE PRECISION NOT NULL,
+  max_drawdown_pct DOUBLE PRECISION NOT NULL,
+  win_rate_pct DOUBLE PRECISION NOT NULL,
+  trade_count INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  is_simulated BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_research_experiments_symbol_interval_created_at
+  ON research_experiments (symbol, interval, created_at DESC);

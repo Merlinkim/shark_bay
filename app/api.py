@@ -19,7 +19,7 @@ from app.metrics import api_request_latency_seconds, api_request_total, db_conne
 from app.observability import StructuredLogger, configure_logging
 from app.features import build_snapshot
 from app.strategy_registry import list_strategy_specs
-from app.experiments import ExperimentResult, run_deterministic_placeholder_experiment
+from app.experiments import ExperimentResult, ResearchExperimentRepository, run_deterministic_placeholder_experiment
 from app.backtest import (
     BacktestRunRepository,
     CandleRepository,
@@ -482,12 +482,19 @@ def research_features(
 
 
 
-@app.get("/research/experiments/run")
+def _get_research_experiment_repo() -> ResearchExperimentRepository:
+    repo = ResearchExperimentRepository(get_db_url())
+    repo.ensure_schema()
+    return repo
+
+
+@app.post("/research/experiments/run")
 def run_research_experiment(
     strategy: str = Query("ema_cross_v1"),
     symbol: str = Query("BTCUSDT", min_length=3, max_length=20, pattern=r"^[A-Z0-9]+$"),
     interval: str = Query("1m", pattern=r"^(1m)$"),
     lookback_hours: int = Query(24, ge=1, le=24*30),
+    persist: bool = Query(False),
 ):
     try:
         result = run_deterministic_placeholder_experiment(
@@ -497,6 +504,8 @@ def run_research_experiment(
             lookback_hours=lookback_hours,
             db_url=get_db_url(),
         )
+        if persist:
+            _get_research_experiment_repo().upsert(result)
         return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -509,22 +518,26 @@ def run_research_experiment(
 def latest_research_experiments(
     symbol: str = Query("BTCUSDT", min_length=3, max_length=20, pattern=r"^[A-Z0-9]+$"),
     interval: str = Query("1m", pattern=r"^(1m)$"),
+    limit: int = Query(20, ge=1, le=200),
 ):
-    strategies = list_strategy_specs(symbol=symbol, interval=interval)
-    results = []
-    for spec in strategies:
-        try:
-            results.append(run_deterministic_placeholder_experiment(
-                strategy_name=spec["strategy_name"],
-                symbol=symbol,
-                interval=interval,
-                lookback_hours=24,
-                db_url=get_db_url(),
-            ))
-        except ValueError:
-            continue
-    results.sort(key=lambda x: x.created_at, reverse=True)
-    return {"experiments": results}
+    try:
+        rows = _get_research_experiment_repo().list_latest(symbol=symbol, interval=interval, limit=limit)
+    except psycopg.Error:
+        logger.exception("database_error_listing_research_experiments")
+        raise HTTPException(status_code=500, detail="Database error")
+    return {"experiments": rows}
+
+
+@app.get("/research/experiments/{experiment_id}")
+def get_research_experiment(experiment_id: str):
+    try:
+        row = _get_research_experiment_repo().get(experiment_id)
+    except psycopg.Error:
+        logger.exception("database_error_fetching_research_experiment")
+        raise HTTPException(status_code=500, detail="Database error")
+    if not row:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    return row
 
 @app.exception_handler(RuntimeError)
 def runtime_error_handler(_, exc: RuntimeError):

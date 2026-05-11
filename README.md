@@ -690,7 +690,7 @@ curl "http://localhost:8000/strategies/registry?status=research_ready&symbol=BTC
 
 This layer is deterministic and metadata-only (no live trading, paper trading, or order execution).
 
-## Backtest Experiment Layer v0
+## Backtest Experiment Layer v0 / Research Memory Layer v0
 
 Read-only deterministic experiment runs are available for research workflows.
 
@@ -698,14 +698,24 @@ Read-only deterministic experiment runs are available for research workflows.
 
 ```bash
 python -m app.experiments --strategy ema_cross_v1 --symbol BTCUSDT --interval 1m --lookback-hours 24
+
+# Persist deterministic experiment metadata/results into research_experiments
+python -m app.experiments --strategy ema_cross_v1 --symbol BTCUSDT --interval 1m --lookback-hours 24 --persist
 ```
 
 ### API
 
-- `GET /research/experiments/latest?symbol=BTCUSDT&interval=1m`
-- `GET /research/experiments/run?strategy=ema_cross_v1&symbol=BTCUSDT&interval=1m&lookback_hours=24`
+- `GET /research/experiments/latest?symbol=BTCUSDT&interval=1m&limit=20`
+- `GET /research/experiments/{experiment_id}`
+- `POST /research/experiments/run?strategy=ema_cross_v1&symbol=BTCUSDT&interval=1m&lookback_hours=24&persist=true`
+
+Schema purpose:
+- `research_experiments` stores deterministic research experiment metadata/results only.
+- Storage is analytical/read-only memory for historical comparison.
+- Idempotent upsert is keyed by `experiment_id`.
+- No live trading, no paper trading, no order execution.
 
 Notes:
 - v0 experiments are deterministic and read-only.
 - v0 uses simulated placeholder backtest logic where full execution is not implemented.
-- No paper/live trading and no order execution is performed by these experiment endpoints.
+- Research memory is read-only analytical storage, not trading execution.
