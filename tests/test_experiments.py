@@ -54,3 +54,19 @@ def test_persistence_upsert_shape(mock_connect):
     conn = mock_connect.return_value.__enter__.return_value
     cur = conn.cursor.return_value.__enter__.return_value
     assert cur.execute.called
+
+
+@patch("app.experiments.psycopg.connect")
+def test_ensure_schema_adds_missing_columns_idempotently(mock_connect):
+    repo = ResearchExperimentRepository("postgresql://demo")
+    repo.ensure_schema()
+
+    conn = mock_connect.return_value.__enter__.return_value
+    cur = conn.cursor.return_value.__enter__.return_value
+    sql_calls = [c.args[0] for c in cur.execute.call_args_list if c.args]
+
+    assert any("CREATE TABLE IF NOT EXISTS research_experiments" in sql for sql in sql_calls)
+    assert any("ADD COLUMN IF NOT EXISTS parameter_hash" in sql for sql in sql_calls)
+    assert any("ADD COLUMN IF NOT EXISTS equity_curve" in sql for sql in sql_calls)
+    assert any("ADD COLUMN IF NOT EXISTS fills" in sql for sql in sql_calls)
+    assert any("ADD COLUMN IF NOT EXISTS is_simulated" in sql for sql in sql_calls)

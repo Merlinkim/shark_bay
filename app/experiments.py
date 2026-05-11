@@ -77,6 +77,14 @@ CREATE INDEX IF NOT EXISTS idx_research_experiments_symbol_interval_created_at
 """
 
 
+
+SCHEMA_MIGRATIONS = [
+    "ALTER TABLE research_experiments ADD COLUMN IF NOT EXISTS parameter_hash TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE research_experiments ADD COLUMN IF NOT EXISTS is_simulated BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE research_experiments ADD COLUMN IF NOT EXISTS equity_curve JSONB NOT NULL DEFAULT '[]'::jsonb",
+    "ALTER TABLE research_experiments ADD COLUMN IF NOT EXISTS fills JSONB NOT NULL DEFAULT '[]'::jsonb",
+]
+
 class ResearchExperimentRepository:
     def __init__(self, db_url: str):
         self.db_url = db_url
@@ -85,6 +93,8 @@ class ResearchExperimentRepository:
         with psycopg.connect(self.db_url) as conn:
             with conn.cursor() as cur:
                 cur.execute(SCHEMA_SQL)
+                for migration_sql in SCHEMA_MIGRATIONS:
+                    cur.execute(migration_sql)
 
     def upsert(self, result: ExperimentResult) -> None:
         with psycopg.connect(self.db_url) as conn:
