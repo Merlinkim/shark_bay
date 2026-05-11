@@ -67,3 +67,22 @@ def test_normalize_historical_row_supports_second_timestamps():
     candle = historical_import._normalize_historical_kline_row(row)
     assert candle["open_time"].year == 2025
     assert candle["close_time"].year == 2025
+
+
+def test_regression_binance_monthly_ms_row_no_year_overflow(monkeypatch):
+    # Real-like Binance Vision monthly row shape (open/close timestamps in milliseconds).
+    csv = "1735689600000,93563.82,93607.43,93475.95,93520.57,18.36789,1735689659999,1717932.12345,1678,7.89123,738123.55123,0\n"
+
+    class R:
+        status_code = 200
+        content = _zip_bytes(csv)
+
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(historical_import.requests, "get", lambda *a, **k: R())
+    summary = historical_import.run_import(
+        Namespace(symbol="BTCUSDT", interval="1m", months=1, start_month="2025-01", end_month="2025-01", dry_run=True, max_months=None, sleep_seconds=0.0, skip_existing=False, run_quality_check=False)
+    )
+    assert summary.imported_rows == 1
+    assert summary.errors == []

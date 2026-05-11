@@ -9,12 +9,12 @@ import time
 import zipfile
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Iterable
 
 import requests
 
-from app.import_binance_klines import _normalize_kline_row, _validate_candle
+from app.import_binance_klines import _validate_candle
 
 VISION_URL_PATTERN = "https://data.binance.vision/data/spot/monthly/klines/{symbol}/{interval}/{symbol}-{interval}-{month}.zip"
 
@@ -80,12 +80,23 @@ def _parse_binance_timestamp(raw_ts: str) -> datetime:
 
 
 def _normalize_historical_kline_row(raw: list[str]) -> dict:
-    candle = _normalize_kline_row(raw)
-    # Defensive override: accept both ms and seconds timestamp units.
-    candle["open_time"] = _parse_binance_timestamp(raw[0])
-    if len(raw) > 6 and raw[6]:
-        candle["close_time"] = _parse_binance_timestamp(raw[6])
-    return candle
+    try:
+        open_time = _parse_binance_timestamp(raw[0])
+        close_time = _parse_binance_timestamp(raw[6]) if len(raw) > 6 and raw[6] else open_time
+        return {
+            "open_time": open_time,
+            "open": Decimal(raw[1]),
+            "high": Decimal(raw[2]),
+            "low": Decimal(raw[3]),
+            "close": Decimal(raw[4]),
+            "volume": Decimal(raw[5]),
+            "close_time": close_time,
+            "trades": int(raw[8]) if len(raw) > 8 and raw[8] else 0,
+            "taker_buy_base": Decimal(raw[9]) if len(raw) > 9 and raw[9] else Decimal("0"),
+            "taker_buy_quote": Decimal(raw[10]) if len(raw) > 10 and raw[10] else Decimal("0"),
+        }
+    except (IndexError, ValueError, InvalidOperation) as exc:
+        raise ValueError(f"row parsing failed: {exc}") from exc
 
 
 def _compute_months(args: argparse.Namespace) -> list[str]:
