@@ -71,6 +71,23 @@ def parse_zip_rows(content: bytes) -> Iterable[list[str]]:
             yield from csv.reader(text)
 
 
+def _parse_binance_timestamp(raw_ts: str) -> datetime:
+    ts = int(raw_ts)
+    # Binance Vision is expected to be milliseconds, but defensively support seconds.
+    if ts > 10_000_000_000:  # > year 2286 in seconds, likely milliseconds
+        return datetime.fromtimestamp(ts / 1000, tz=timezone.utc)
+    return datetime.fromtimestamp(ts, tz=timezone.utc)
+
+
+def _normalize_historical_kline_row(raw: list[str]) -> dict:
+    candle = _normalize_kline_row(raw)
+    # Defensive override: accept both ms and seconds timestamp units.
+    candle["open_time"] = _parse_binance_timestamp(raw[0])
+    if len(raw) > 6 and raw[6]:
+        candle["close_time"] = _parse_binance_timestamp(raw[6])
+    return candle
+
+
 def _compute_months(args: argparse.Namespace) -> list[str]:
     now = datetime.now(timezone.utc)
     if args.end_month:
@@ -135,7 +152,7 @@ def run_import(args: argparse.Namespace) -> ImportSummary:
                 rows = list(parse_zip_rows(resp.content))
                 summary.downloaded_months += 1
                 for raw in rows:
-                    candle = _normalize_kline_row(raw)
+                    candle = _normalize_historical_kline_row(raw)
                     candle["symbol"] = args.symbol
                     if not _validate_candle(candle):
                         continue

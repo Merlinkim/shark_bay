@@ -53,3 +53,17 @@ def test_dry_run_behavior(monkeypatch):
     )
     assert summary.imported_rows == 1
     assert summary.upserted_rows == 0
+
+
+def test_normalize_historical_row_uses_millisecond_timestamps():
+    row = ["1735689600000", "1", "2", "0.5", "1.5", "10", "1735689659999", "0", "1", "0", "0", "0"]
+    candle = historical_import._normalize_historical_kline_row(row)
+    assert candle["open_time"].year == 2025
+    assert candle["close_time"].year == 2025
+
+
+def test_normalize_historical_row_supports_second_timestamps():
+    row = ["1735689600", "1", "2", "0.5", "1.5", "10", "1735689659", "0", "1", "0", "0", "0"]
+    candle = historical_import._normalize_historical_kline_row(row)
+    assert candle["open_time"].year == 2025
+    assert candle["close_time"].year == 2025
