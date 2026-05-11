@@ -20,6 +20,7 @@ from app.observability import StructuredLogger, configure_logging
 from app.features import build_snapshot
 from app.strategy_registry import list_strategy_specs
 from app.experiments import ExperimentResult, ResearchExperimentRepository, run_deterministic_placeholder_experiment
+from app.research_analytics import build_research_analytics
 from app.backtest import (
     BacktestRunRepository,
     CandleRepository,
@@ -528,6 +529,20 @@ def latest_research_experiments(
     return {"experiments": rows}
 
 
+
+
+@app.get("/research/analytics")
+def research_analytics(
+    symbol: str = Query("BTCUSDT", min_length=3, max_length=20, pattern=r"^[A-Z0-9]+$"),
+    interval: str = Query("1m", pattern=r"^(1m)$"),
+    limit: int = Query(100, ge=1, le=500),
+):
+    try:
+        rows = _get_research_experiment_repo().list_latest(symbol=symbol, interval=interval, limit=limit)
+    except psycopg.Error:
+        logger.exception("database_error_listing_research_analytics")
+        raise HTTPException(status_code=500, detail="Database error")
+    return build_research_analytics(rows, recent_limit=min(limit, 20))
 @app.get("/research/experiments/{experiment_id}")
 def get_research_experiment(experiment_id: str):
     try:
