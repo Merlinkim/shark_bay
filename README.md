@@ -767,3 +767,38 @@ python -m app.research_analytics --symbol BTCUSDT --interval 1m --limit 100
 ```
 
 This prints analytics JSON computed from persisted research memory only.
+
+### Dataset splits, hidden holdout, and walk-forward (research-only)
+
+To reduce overfitting risk in research experiments, the API/CLI now supports deterministic date splits and rolling walk-forward windows:
+
+- deterministic date split defaults: `train=70%`, `validation=15%`, `holdout=15%`
+- holdout is hidden by default to avoid accidental optimization leakage
+- holdout visibility requires explicit opt-in via `--include-holdout` or `include_holdout=true`
+- rolling mode supports configurable train/validation/test windows and step size (for example: 180d/30d/30d, step 30d)
+
+Why holdout matters:
+
+- training/validation can still overfit through repeated tuning loops
+- hidden holdout helps measure post-tuning degradation before any promotion decisions
+
+Walk-forward rationale:
+
+- evaluates robustness across multiple rolling time segments
+- improves confidence that performance is not tied to a single regime slice
+- enables drift checks (train vs validation) and stability checks (sharpe consistency over windows)
+
+CLI examples:
+
+```bash
+python -m app.dataset_splits --symbol BTCUSDT --interval 1m
+python -m app.dataset_splits --symbol BTCUSDT --interval 1m --split-mode rolling --train-days 180 --validation-days 30 --test-days 30
+python -m app.dataset_splits --symbol BTCUSDT --interval 1m --include-holdout
+```
+
+API examples:
+
+```bash
+curl "http://localhost:8000/research/dataset/splits?symbol=BTCUSDT&interval=1m"
+curl "http://localhost:8000/research/dataset/splits?symbol=BTCUSDT&interval=1m&split_mode=rolling&train_days=180&validation_days=30&test_days=30"
+```

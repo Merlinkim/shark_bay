@@ -1,5 +1,5 @@
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -21,6 +21,7 @@ from app.features import build_snapshot
 from app.strategy_registry import list_strategy_specs
 from app.experiments import ExperimentResult, ResearchExperimentRepository, run_deterministic_placeholder_experiment
 from app.research_analytics import build_research_analytics
+from app.dataset_splits import build_split_payload
 from app.backtest import (
     BacktestRunRepository,
     CandleRepository,
@@ -496,6 +497,8 @@ def run_research_experiment(
     interval: str = Query("1m", pattern=r"^(1m)$"),
     lookback_hours: int = Query(24, ge=1, le=24*30),
     persist: bool = Query(False),
+    split_mode: str = Query("ratio", pattern=r"^(ratio|rolling)$"),
+    include_holdout: bool = Query(False),
 ):
     try:
         result = run_deterministic_placeholder_experiment(
@@ -505,9 +508,13 @@ def run_research_experiment(
             lookback_hours=lookback_hours,
             db_url=get_db_url(),
         )
+        result_payload = result.__dict__.copy()
+        result_payload["split_mode"] = split_mode
         if persist:
             _get_research_experiment_repo().upsert(result)
-        return result
+        if not include_holdout:
+            result_payload.pop("holdout_metrics", None)
+        return result_payload
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except psycopg.Error:
@@ -543,6 +550,34 @@ def research_analytics(
         logger.exception("database_error_listing_research_analytics")
         raise HTTPException(status_code=500, detail="Database error")
     return build_research_analytics(rows, recent_limit=min(limit, 20))
+
+
+@app.get("/research/dataset/splits")
+def research_dataset_splits(
+    symbol: str = Query("BTCUSDT", min_length=3, max_length=20, pattern=r"^[A-Z0-9]+$"),
+    interval: str = Query("1m", pattern=r"^(1m)$"),
+    split_mode: str = Query("ratio", pattern=r"^(ratio|rolling)$"),
+    include_holdout: bool = Query(False),
+    lookback_days: int = Query(365, ge=30, le=3650),
+    train_days: int = Query(180, ge=1, le=3650),
+    validation_days: int = Query(30, ge=1, le=3650),
+    test_days: int = Query(30, ge=1, le=3650),
+    step_days: int | None = Query(None, ge=1, le=3650),
+):
+    end_time = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    start_time = end_time - timedelta(days=lookback_days)
+    candles = CandleRepository(get_db_url()).get_candles(symbol=symbol, interval=interval, start_time=start_time, end_time=end_time)
+    return build_split_payload(
+        symbol=symbol,
+        interval=interval,
+        candles=candles,
+        split_mode=split_mode,
+        include_holdout=include_holdout,
+        train_days=train_days,
+        validation_days=validation_days,
+        test_days=test_days,
+        step_days=step_days,
+    )
 @app.get("/research/experiments/{experiment_id}")
 def get_research_experiment(experiment_id: str):
     try:
