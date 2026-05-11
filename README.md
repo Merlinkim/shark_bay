@@ -828,3 +828,26 @@ curl "http://localhost:8000/research/dataset/splits?symbol=BTCUSDT&interval=1m"
 curl "http://localhost:8000/research/dataset/splits?symbol=BTCUSDT&interval=1m&split_mode=rolling&train_days=180&validation_days=30&test_days=30"
 curl "http://localhost:8000/research/dataset/splits?symbol=BTCUSDT&interval=1m&split_mode=rolling&start=2024-04-01T00:00:00Z&end=2025-03-31T23:59:00Z&train_days=180&validation_days=30&test_days=30"
 ```
+
+## Real Backtest Engine v0 (Research-Only)
+
+- Deterministic historical replay using `candles_1m` and Strategy Registry v0 metadata.
+- Supported strategies: `ema_cross_v1`, `rsi_mean_reversion_v1`, `volatility_breakout_v1`.
+- Metrics include `total_return_pct`, `sharpe`, `max_drawdown_pct`, `win_rate_pct`, `trade_count`, `dataset_fingerprint`, and `parameter_hash`.
+- Outputs also include `equity_curve` and `fills`.
+- Scope is research backtesting only. No paper/live order execution is implemented.
+
+CLI examples:
+
+```bash
+python -m app.experiments --strategy ema_cross_v1 --symbol BTCUSDT --interval 1m --start "2024-04-01T00:00:00Z" --end "2024-05-01T00:00:00Z" --persist
+python -m app.experiments --strategy ema_cross_v1 --symbol BTCUSDT --interval 1m --lookback-hours 24
+```
+
+API examples:
+
+```bash
+curl "http://localhost:8000/research/experiments/run?strategy=ema_cross_v1&symbol=BTCUSDT&interval=1m&start=2024-04-01T00:00:00Z&end=2024-05-01T00:00:00Z"
+curl "http://localhost:8000/research/experiments/<experiment_id>/equity-curve"
+curl "http://localhost:8000/research/experiments/<experiment_id>/fills"
+```

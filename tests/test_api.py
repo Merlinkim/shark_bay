@@ -103,8 +103,8 @@ class TestAPI(unittest.TestCase):
             'symbol': 'BTCUSDT', 'interval': '1m', 'dataset_start': None, 'dataset_end': None,
             'dataset_row_count': 0, 'dataset_fingerprint': 'f', 'parameters': {}, 'features_used': [],
             'intended_regime': 'trend', 'risk_profile': 'medium', 'total_return_pct': 0.0, 'sharpe': 0.0,
-            'max_drawdown_pct': 0.0, 'win_rate_pct': 0.0, 'trade_count': 0, 'status': 'simulated_placeholder',
-            'is_simulated': True, 'created_at': '2026-01-01T00:00:00+00:00',
+            'max_drawdown_pct': 0.0, 'win_rate_pct': 0.0, 'trade_count': 0, 'status': 'real_backtest',
+            'is_simulated': False, 'created_at': '2026-01-01T00:00:00+00:00',
         }]
         r = self.client.get('/research/experiments/latest')
         self.assertEqual(r.status_code, 200)
