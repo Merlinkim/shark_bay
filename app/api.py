@@ -554,6 +554,52 @@ def get_research_experiment(experiment_id: str):
         raise HTTPException(status_code=404, detail="Experiment not found")
     return row
 
+
+
+class RestBackfillRequest(BaseModel):
+    symbol: str
+    interval: str = "1m"
+    start: datetime
+    end: datetime
+    dry_run: bool = True
+    sleep_seconds: float = 0.2
+    limit: int = 1000
+    skip_existing: bool = False
+
+
+@app.post("/research/backfill/rest")
+def research_rest_backfill(payload: RestBackfillRequest):
+    """Maintenance/admin endpoint for REST historical backfill only."""
+    from app.rest_backfill import run_rest_backfill
+
+    if payload.interval != "1m":
+        raise HTTPException(status_code=400, detail="Only 1m interval is supported for candles_1m")
+
+    summary = run_rest_backfill(
+        symbol=payload.symbol,
+        interval=payload.interval,
+        start=payload.start.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+        end=payload.end.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+        dry_run=payload.dry_run,
+        sleep_seconds=payload.sleep_seconds,
+        limit=payload.limit,
+        skip_existing=payload.skip_existing,
+    )
+    return {
+        "symbol": summary.symbol,
+        "interval": summary.interval,
+        "start": summary.start,
+        "end": summary.end,
+        "requested_range": summary.requested_range,
+        "api_requests": summary.api_requests,
+        "fetched_rows": summary.fetched_rows,
+        "upserted_rows": summary.upserted_rows,
+        "min_open_time": summary.min_open_time,
+        "max_open_time": summary.max_open_time,
+        "dry_run": summary.dry_run,
+        "errors": summary.errors,
+    }
+
 @app.exception_handler(RuntimeError)
 def runtime_error_handler(_, exc: RuntimeError):
     logger.exception("runtime_error", error=str(exc))

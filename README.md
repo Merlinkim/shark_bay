@@ -564,6 +564,30 @@ Notes:
 - Large imports can take significant time, network bandwidth, and disk space.
 - Import is idempotent through duplicate-safe upsert behavior in `candles_1m`.
 
+### REST Historical Backfill Layer v0
+
+Use REST backfill for **partial/current-month** gaps that are not yet available in Binance Vision monthly files.
+
+- Monthly importer (`app.historical_import`) is best for long-range closed months.
+- REST backfill (`app.rest_backfill`) is best for recent windows like `2026-05-01` to `2026-05-11`.
+
+Examples:
+
+```bash
+python -m app.rest_backfill --symbol BTCUSDT --interval 1m --start "2026-05-01T00:00:00Z" --end "2026-05-11T00:00:00Z"
+python -m app.rest_backfill --symbol BTCUSDT --interval 1m --start "2026-05-01T00:00:00Z" --end "2026-05-02T00:00:00Z" --dry-run
+python -m app.rest_backfill --symbol BTCUSDT --interval 1m --start "2026-05-01T00:00:00Z" --end "2026-05-11T00:00:00Z" --skip-existing --sleep-seconds 0.2 --limit 1000
+```
+
+Optional maintenance endpoint:
+
+- `POST /research/backfill/rest`
+- Admin-style/read-only control plane endpoint; no trading behavior.
+
+Rate limit warning:
+
+- Binance REST enforces request limits. Prefer `--sleep-seconds` pacing for larger windows and avoid running many concurrent jobs.
+
 DB verification query:
 
 ```bash
