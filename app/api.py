@@ -19,7 +19,7 @@ from app.metrics import api_request_latency_seconds, api_request_total, db_conne
 from app.observability import StructuredLogger, configure_logging
 from app.features import build_snapshot
 from app.strategy_registry import list_strategy_specs
-from app.experiments import ExperimentResult, ResearchExperimentRepository, run_deterministic_placeholder_experiment
+from app.experiments import ResearchExperimentRepository, run_real_backtest_experiment
 from app.research_analytics import build_research_analytics
 from app.dataset_splits import build_split_payload
 from app.backtest import (
@@ -490,22 +490,26 @@ def _get_research_experiment_repo() -> ResearchExperimentRepository:
     return repo
 
 
-@app.post("/research/experiments/run")
+@app.get("/research/experiments/run")
 def run_research_experiment(
     strategy: str = Query("ema_cross_v1"),
     symbol: str = Query("BTCUSDT", min_length=3, max_length=20, pattern=r"^[A-Z0-9]+$"),
     interval: str = Query("1m", pattern=r"^(1m)$"),
     lookback_hours: int = Query(24, ge=1, le=24*30),
+    start: datetime | None = Query(None),
+    end: datetime | None = Query(None),
     persist: bool = Query(False),
     split_mode: str = Query("ratio", pattern=r"^(ratio|rolling)$"),
     include_holdout: bool = Query(False),
 ):
     try:
-        result = run_deterministic_placeholder_experiment(
+        result = run_real_backtest_experiment(
             strategy_name=strategy,
             symbol=symbol,
             interval=interval,
             lookback_hours=lookback_hours,
+            start=start,
+            end=end,
             db_url=get_db_url(),
         )
         result_payload = result.__dict__.copy()
@@ -590,6 +594,24 @@ def get_research_experiment(experiment_id: str):
         raise HTTPException(status_code=404, detail="Experiment not found")
     return row
 
+
+
+
+
+@app.get("/research/experiments/{experiment_id}/equity-curve")
+def get_research_experiment_equity_curve(experiment_id: str):
+    row = _get_research_experiment_repo().get(experiment_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    return {"experiment_id": experiment_id, "equity_curve": row.get("equity_curve", [])}
+
+
+@app.get("/research/experiments/{experiment_id}/fills")
+def get_research_experiment_fills(experiment_id: str):
+    row = _get_research_experiment_repo().get(experiment_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    return {"experiment_id": experiment_id, "fills": row.get("fills", [])}
 
 
 class RestBackfillRequest(BaseModel):
