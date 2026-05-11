@@ -558,15 +558,16 @@ def research_dataset_splits(
     interval: str = Query("1m", pattern=r"^(1m)$"),
     split_mode: str = Query("ratio", pattern=r"^(ratio|rolling)$"),
     include_holdout: bool = Query(False),
-    lookback_days: int = Query(365, ge=30, le=3650),
+    start: datetime | None = Query(None),
+    end: datetime | None = Query(None),
     train_days: int = Query(180, ge=1, le=3650),
     validation_days: int = Query(30, ge=1, le=3650),
     test_days: int = Query(30, ge=1, le=3650),
     step_days: int | None = Query(None, ge=1, le=3650),
 ):
-    end_time = datetime.now(timezone.utc).replace(second=0, microsecond=0)
-    start_time = end_time - timedelta(days=lookback_days)
-    candles = CandleRepository(get_db_url()).get_candles(symbol=symbol, interval=interval, start_time=start_time, end_time=end_time)
+    if start is not None and end is not None and end <= start:
+        raise HTTPException(status_code=400, detail="Invalid range: end must be greater than start")
+    candles = CandleRepository(get_db_url()).get_candles(symbol=symbol, interval=interval, start_time=start, end_time=end)
     return build_split_payload(
         symbol=symbol,
         interval=interval,

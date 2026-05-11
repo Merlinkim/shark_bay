@@ -794,6 +794,7 @@ CLI examples:
 python -m app.dataset_splits --symbol BTCUSDT --interval 1m
 python -m app.dataset_splits --symbol BTCUSDT --interval 1m --split-mode rolling --train-days 180 --validation-days 30 --test-days 30
 python -m app.dataset_splits --symbol BTCUSDT --interval 1m --include-holdout
+python -m app.dataset_splits --symbol BTCUSDT --interval 1m --split-mode rolling --start 2024-04-01T00:00:00Z --end 2025-03-31T23:59:00Z --train-days 180 --validation-days 30 --test-days 30
 ```
 
 API examples:
@@ -801,4 +802,5 @@ API examples:
 ```bash
 curl "http://localhost:8000/research/dataset/splits?symbol=BTCUSDT&interval=1m"
 curl "http://localhost:8000/research/dataset/splits?symbol=BTCUSDT&interval=1m&split_mode=rolling&train_days=180&validation_days=30&test_days=30"
+curl "http://localhost:8000/research/dataset/splits?symbol=BTCUSDT&interval=1m&split_mode=rolling&start=2024-04-01T00:00:00Z&end=2025-03-31T23:59:00Z&train_days=180&validation_days=30&test_days=30"
 ```

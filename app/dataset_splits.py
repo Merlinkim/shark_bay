@@ -160,6 +160,8 @@ def build_split_payload(
             "split_mode": split_mode,
             "dataset_start": dataset_start.isoformat(),
             "dataset_end": dataset_end.isoformat(),
+            "selected_range_start": dataset_start.isoformat(),
+            "selected_range_end": dataset_end.isoformat(),
             "windows": [
                 {
                     "train": asdict(w.train),
@@ -182,6 +184,8 @@ def build_split_payload(
         "split_mode": split_mode,
         "dataset_start": dataset_start.isoformat(),
         "dataset_end": dataset_end.isoformat(),
+        "selected_range_start": dataset_start.isoformat(),
+        "selected_range_end": dataset_end.isoformat(),
         "train_range": {"start": split.train.start.isoformat(), "end": split.train.end.isoformat()},
         "validation_range": {"start": split.validation.start.isoformat(), "end": split.validation.end.isoformat()},
         "train_metrics": _metrics(train_c),
@@ -200,6 +204,30 @@ def build_split_payload(
     return payload
 
 
+def parse_iso8601_utc(value: str) -> datetime:
+    normalized = value.replace("Z", "+00:00")
+    parsed = datetime.fromisoformat(normalized)
+    if parsed.tzinfo is None:
+        raise ValueError("Datetime must include timezone, e.g. 2024-04-01T00:00:00Z")
+    return parsed.astimezone(timezone.utc)
+
+
+def resolve_selected_range(
+    candles: list[Any],
+    start: datetime | None,
+    end: datetime | None,
+) -> tuple[datetime, datetime]:
+    if len(candles) < 2:
+        raise ValueError("Need at least 2 candles")
+    full_start = candles[0].open_time
+    full_end = candles[-1].open_time
+    selected_start = start or full_start
+    selected_end = end or full_end
+    if selected_end <= selected_start:
+        raise ValueError("Invalid range: end must be greater than start")
+    return selected_start, selected_end
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Deterministic dataset splitting and rolling walk-forward window generation")
     parser.add_argument("--symbol", default="BTCUSDT")
@@ -209,7 +237,8 @@ def main() -> None:
     parser.add_argument("--validation-days", type=int, default=30)
     parser.add_argument("--test-days", type=int, default=30)
     parser.add_argument("--step-days", type=int, default=None)
-    parser.add_argument("--lookback-days", type=int, default=365)
+    parser.add_argument("--start", type=str, default=None)
+    parser.add_argument("--end", type=str, default=None)
     parser.add_argument("--include-holdout", action="store_true")
     args = parser.parse_args()
 
@@ -220,9 +249,11 @@ def main() -> None:
     if not db_url:
         raise RuntimeError("DATABASE_URL is not set")
 
-    end_time = datetime.now(timezone.utc).replace(second=0, microsecond=0)
-    start_time = end_time - timedelta(days=args.lookback_days)
-    candles = CandleRepository(db_url).get_candles(symbol=args.symbol, interval=args.interval, start_time=start_time, end_time=end_time)
+    selected_start = parse_iso8601_utc(args.start) if args.start else None
+    selected_end = parse_iso8601_utc(args.end) if args.end else None
+    candles = CandleRepository(db_url).get_candles(symbol=args.symbol, interval=args.interval, start_time=selected_start, end_time=selected_end)
+    if selected_start is None or selected_end is None:
+        selected_start, selected_end = resolve_selected_range(candles, selected_start, selected_end)
     payload = build_split_payload(
         symbol=args.symbol,
         interval=args.interval,
