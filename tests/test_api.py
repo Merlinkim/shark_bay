@@ -118,8 +118,13 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(r.json()['experiments'], [])
 
 
-
-
+    @patch('app.api.get_active_symbols')
+    def test_symbols_active_shape(self, active_symbols):
+        active_symbols.return_value = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+        r = self.client.get('/symbols/active')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['count'], 3)
+        self.assertEqual(r.json()['symbols'][1], 'ETHUSDT')
 
     @patch('app.api._get_research_experiment_repo')
     def test_research_analytics_empty(self, repo_factory):

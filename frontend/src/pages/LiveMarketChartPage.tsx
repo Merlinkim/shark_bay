@@ -28,6 +28,8 @@ function mergeCandles(prev: Candle[], incoming: Candle[]): Candle[] {
 
 export function LiveMarketChartPage() {
   const [range, setRange] = useState<keyof typeof RANGE_LIMIT>('1h');
+  const [symbol, setSymbol] = useState('BTCUSDT');
+  const [activeSymbols, setActiveSymbols] = useState<string[]>(['BTCUSDT']);
   const [polling, setPolling] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +48,7 @@ export function LiveMarketChartPage() {
   const fetchCandles = async (isIncremental = false) => {
     if (!isIncremental) setLoading(true);
     try {
-      const response = await fetch(`${apiBaseUrl}/candles?symbol=BTCUSDT&interval=1m&limit=${RANGE_LIMIT[range]}`);
+      const response = await fetch(`${apiBaseUrl}/candles?symbol=${symbol}&interval=1m&limit=${RANGE_LIMIT[range]}`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const payload = await response.json();
       const incoming = ((payload.candles ?? []) as Candle[])
@@ -67,8 +69,16 @@ export function LiveMarketChartPage() {
   };
 
   useEffect(() => {
+    fetch(`${apiBaseUrl}/symbols/active`).then((r) => r.json()).then((payload) => {
+      const symbols = Array.isArray(payload.symbols) && payload.symbols.length > 0 ? payload.symbols : ['BTCUSDT'];
+      setActiveSymbols(symbols);
+      if (!symbols.includes(symbol)) setSymbol('BTCUSDT');
+    }).catch(() => setActiveSymbols(['BTCUSDT']));
+  }, []);
+
+  useEffect(() => {
     void fetchCandles(false);
-  }, [range]);
+  }, [range, symbol]);
 
   useEffect(() => {
     if (!polling) {
@@ -151,9 +161,10 @@ export function LiveMarketChartPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Live Market Chart</h1>
-          <p className="text-sm text-text-secondary">Read-only BTCUSDT 1m candlestick inspection.</p>
+          <p className="text-sm text-text-secondary">Read-only multi-symbol 1m candlestick inspection.</p>
         </div>
         <div className="flex gap-2">
+          <select value={symbol} onChange={(e) => setSymbol(e.target.value)} className="rounded-lg bg-surface-900 px-2 py-1.5 text-xs ring-1 ring-surface-700/70">{activeSymbols.map((s)=><option key={s} value={s}>{s}</option>)}</select>
           {(['1h', '6h', '24h', '7d'] as const).map((r) => (
             <button key={r} onClick={() => setRange(r)} className={`rounded-lg px-3 py-1.5 text-xs ${range === r ? 'bg-surface-800 text-text-primary' : 'bg-surface-900 text-text-secondary ring-1 ring-surface-700/70'}`}>{r}</button>
           ))}
@@ -162,7 +173,7 @@ export function LiveMarketChartPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4 lg:grid-cols-8">
-        <div className="rounded-lg bg-surface-900 p-2 ring-1 ring-surface-700/60">Symbol <div className="text-text-secondary">BTCUSDT</div></div>
+        <div className="rounded-lg bg-surface-900 p-2 ring-1 ring-surface-700/60">Symbol <div className="text-text-secondary">{symbol}</div></div>
         <div className="rounded-lg bg-surface-900 p-2 ring-1 ring-surface-700/60">Interval <div className="text-text-secondary">1m</div></div>
         <div className="rounded-lg bg-surface-900 p-2 ring-1 ring-surface-700/60">Latest Candle <div className="text-text-secondary">{latest?.open_time ?? '—'}</div></div>
         <div className="rounded-lg bg-surface-900 p-2 ring-1 ring-surface-700/60">Candle Count <div className="text-text-secondary">{candles.length}</div></div>

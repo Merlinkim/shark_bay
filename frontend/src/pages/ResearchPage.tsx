@@ -11,23 +11,29 @@ const equity = [{ t: '09', v: 10000 }, { t: '10', v: 10080 }, { t: '11', v: 1012
 
 export function ResearchPage() {
   const [snapshot, setSnapshot] = useState<ResearchFeatureResponse | null>(null);
+  const [symbol, setSymbol] = useState("BTCUSDT");
+  const [activeSymbols, setActiveSymbols] = useState<string[]>(["BTCUSDT"]);
   const [experiments, setExperiments] = useState<ExperimentResult[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [analytics, setAnalytics] = useState<ResearchAnalyticsResponse | null>(null);
   const [agentRecommendation, setAgentRecommendation] = useState<ResearchAgentRecommendation | null>(null);
 
   useEffect(() => {
-    api.researchFeatures().then((res) => {
+    api.activeSymbols().then((res)=> setActiveSymbols(res.symbols.length ? res.symbols : ["BTCUSDT"])) .catch(()=>setActiveSymbols(["BTCUSDT"]));
+  }, [symbol]);
+
+  useEffect(() => {
+    api.researchFeatures(symbol).then((res) => {
       setSnapshot(res);
       setLoadError(null);
     }).catch(() => {
       setSnapshot(null);
       setLoadError('Research feature telemetry unavailable');
     });
-    api.latestExperiments().then((res) => setExperiments(res.experiments)).catch(() => setExperiments([]));
-    api.researchAnalytics().then((res) => setAnalytics(res)).catch(() => setAnalytics(null));
-    api.researchAgentRecommendations('BTCUSDT', '1m').then((res) => setAgentRecommendation(res)).catch(() => setAgentRecommendation(null));
-  }, []);
+    api.latestExperiments(symbol).then((res) => setExperiments(res.experiments)).catch(() => setExperiments([]));
+    api.researchAnalytics(symbol).then((res) => setAnalytics(res)).catch(() => setAnalytics(null));
+    api.researchAgentRecommendations(symbol, '1m').then((res) => setAgentRecommendation(res)).catch(() => setAgentRecommendation(null));
+  }, [symbol]);
 
   const featureRows = useMemo(() => {
     if (!snapshot) return [];
@@ -36,7 +42,7 @@ export function ResearchPage() {
 
   return (<div className="space-y-3">
     <div><h1 className="text-xl font-semibold tracking-tight">Research Workspace</h1><p className="text-xs text-text-secondary">Read-only quantitative research and experiment monitoring.</p></div>
-    <section className="grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-6">
+    <div className="flex items-center gap-2 text-xs"><span>Symbol</span><select value={symbol} onChange={(e)=>setSymbol(e.target.value)} className="rounded-md bg-surface-900 p-1 ring-1 ring-surface-700/60">{activeSymbols.map((s)=><option key={s} value={s}>{s}</option>)}</select></div><section className="grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-6">
       <div className="rounded-md bg-surface-900 p-2 ring-1 ring-surface-700/60">Datasets available<div className="text-text-secondary">{datasets.length}</div></div>
       <div className="rounded-md bg-surface-900 p-2 ring-1 ring-surface-700/60">Real features tracked<div className="text-text-secondary">{featureRows.length}</div></div>
       <div className="rounded-md bg-surface-900 p-2 ring-1 ring-surface-700/60">Persisted experiments<div className="text-text-secondary">{experiments.length}</div></div>

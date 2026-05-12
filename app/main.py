@@ -1,12 +1,16 @@
 import os
 import signal
 import time
+from collections import defaultdict
 
 from prometheus_client import start_http_server
 from datetime import datetime, timezone
 from decimal import Decimal
 
 from app.metrics import (
+    active_symbol_count,
+    websocket_stream_count,
+    symbol_reconnect_total,
     candle_insert_total,
     data_quality_duplicate_count,
     data_quality_future_timestamp_count,
@@ -31,6 +35,19 @@ from app.metrics import (
 from app.observability import StructuredLogger, configure_logging
 
 BINANCE_KLINES_URL = "https://api.binance.com/api/v3/klines"
+
+
+def parse_symbols(raw_symbols: str | None, fallback_symbol: str = "BTCUSDT") -> list[str]:
+    if raw_symbols:
+        parsed = [item.strip().upper() for item in raw_symbols.split(",") if item.strip()]
+        unique = list(dict.fromkeys(parsed))
+        return unique or [fallback_symbol.upper()]
+    return [fallback_symbol.upper()]
+
+
+def build_combined_stream_url(symbols: list[str], interval: str = "1m") -> str:
+    streams = "/".join(f"{symbol.lower()}@kline_{interval}" for symbol in symbols)
+    return f"/stream?streams={streams}"
 
 
 class IngestionMetrics:
@@ -332,11 +349,16 @@ def run():
 
     db_url = os.environ["DATABASE_URL"]
     poll_seconds = int(os.getenv("POLL_SECONDS", "10"))
-    symbol = os.getenv("SYMBOL", "BTCUSDT")
+    symbols = parse_symbols(os.getenv("SYMBOLS"), os.getenv("SYMBOL", "BTCUSDT"))
+    symbol = symbols[0]
+    combined_stream_path = build_combined_stream_url(symbols)
+    reconnect_by_symbol = defaultdict(int)
+    active_symbol_count.set(len(symbols))
+    websocket_stream_count.set(len(symbols))
 
     metrics_port = int(os.getenv("METRICS_PORT", "9100"))
     start_http_server(metrics_port)
-    logger.info("ingestor_start", symbol=symbol, poll_seconds=poll_seconds, database_url=sanitized_db_url(db_url), metrics_port=metrics_port)
+    logger.info("ingestor_start", symbols=symbols, combined_stream_path=combined_stream_path, poll_seconds=poll_seconds, database_url=sanitized_db_url(db_url), metrics_port=metrics_port)
 
     import psycopg
 
@@ -346,23 +368,26 @@ def run():
                 init_schema(conn)
                 logger.info("db_connected")
                 db_connection_status.labels(service="ingestor").set(1)
-                recover_recent_gap(conn, logger, symbol, metrics)
+                for active_symbol in symbols:
+                    recover_recent_gap(conn, logger, active_symbol, metrics)
                 while running:
                     metrics.poll_count += 1
                     try:
-                        klines = fetch_latest_klines(symbol=symbol, interval="1m", limit=2)
-                        for k in klines:
-                            candle = parse_kline(symbol, k)
-                            record_candle_quality_metrics(candle)
-                            inserted = upsert_candle(conn, candle)
-                            candle_insert_total.inc()
-                            if not inserted:
-                                duplicate_candle_total.inc()
-                            latest_candle_timestamp.set(candle["open_time"].timestamp())
-                            logger.info("candle_upsert", symbol=symbol, open_time=candle["open_time"], inserted=inserted)
+                        for active_symbol in symbols:
+                            klines = fetch_latest_klines(symbol=active_symbol, interval="1m", limit=2)
+                            for k in klines:
+                                candle = parse_kline(active_symbol, k)
+                                record_candle_quality_metrics(candle)
+                                inserted = upsert_candle(conn, candle)
+                                candle_insert_total.inc()
+                                if not inserted:
+                                    duplicate_candle_total.inc()
+                                latest_candle_timestamp.set(candle["open_time"].timestamp())
+                                logger.info("candle_upsert", symbol=active_symbol, open_time=candle["open_time"], inserted=inserted)
                         metrics.success_count += 1
                         metrics.last_success_at = datetime.now(timezone.utc).isoformat()
-                        detect_missing_candle_structure(conn, symbol)
+                        for active_symbol in symbols:
+                            detect_missing_candle_structure(conn, active_symbol)
                     except Exception as exc:
                         metrics.error_count += 1
                         metrics.retry_count += 1
@@ -374,6 +399,9 @@ def run():
         except Exception as exc:
             metrics.reconnect_count += 1
             websocket_reconnect_total.inc()
+            for active_symbol in symbols:
+                reconnect_by_symbol[active_symbol] += 1
+                symbol_reconnect_total.labels(symbol=active_symbol).inc()
             db_connection_status.labels(service="ingestor").set(0)
             logger.exception("database_connection_error", error=str(exc), reconnect_count=metrics.reconnect_count)
             time.sleep(3)

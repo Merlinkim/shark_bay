@@ -893,3 +893,7 @@ The response includes:
 - `rejected_strategies`
 - `next_actions`
 - explicit safety flags indicating recommendation-only behavior.
+
+
+## Multi-symbol ingestion
+Set `SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT` to ingest multiple symbols in read-only research mode.
