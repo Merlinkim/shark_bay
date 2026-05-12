@@ -1,8 +1,9 @@
 from prometheus_client import Counter, Gauge, Histogram
 
 candle_insert_total = Counter(
-    "candle_insert_total",
+    "candle_upsert_total",
     "Total number of candles inserted or upserted by the ingestor",
+    ["symbol"],
 )
 
 duplicate_candle_total = Counter(
@@ -18,6 +19,13 @@ ingest_error_total = Counter(
 websocket_reconnect_total = Counter(
     "websocket_reconnect_total",
     "Total number of reconnect attempts by ingestor",
+    ["symbol"],
+)
+
+websocket_message_total = Counter(
+    "websocket_message_total",
+    "Total websocket-style ingestion messages processed",
+    ["symbol"],
 )
 
 rest_backfill_requested_total = Counter(
@@ -46,8 +54,15 @@ missing_candle_gap_count = Gauge(
 )
 
 latest_candle_timestamp = Gauge(
-    "latest_candle_timestamp",
+    "last_candle_timestamp",
     "Unix timestamp of latest candle processed",
+    ["symbol"],
+)
+
+ingestion_lag_seconds = Gauge(
+    "ingestion_lag_seconds",
+    "Lag in seconds between now and latest candle open time",
+    ["symbol"],
 )
 
 

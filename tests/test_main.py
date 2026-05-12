@@ -20,8 +20,20 @@ class TestMain(unittest.TestCase):
     def test_parse_symbols(self):
         self.assertEqual(parse_symbols("btcusdt, ethusdt,SOLUSDT"), ["BTCUSDT", "ETHUSDT", "SOLUSDT"])
 
+    def test_parse_symbols_ten(self):
+        raw = "BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,DOGEUSDT,ADAUSDT,LINKUSDT,AVAXUSDT,SUIUSDT"
+        parsed = parse_symbols(raw)
+        self.assertEqual(len(parsed), 10)
+        self.assertEqual(parsed[-1], "SUIUSDT")
+
     def test_combined_stream_url(self):
         self.assertEqual(build_combined_stream_url(["BTCUSDT", "ETHUSDT"]), "/stream?streams=btcusdt@kline_1m/ethusdt@kline_1m")
+
+    def test_combined_stream_url_ten_stable(self):
+        symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "LINKUSDT", "AVAXUSDT", "SUIUSDT"]
+        url = build_combined_stream_url(symbols)
+        self.assertTrue(url.startswith("/stream?streams="))
+        self.assertEqual(url.count("@kline_1m"), 10)
 
 
 if __name__ == "__main__":
