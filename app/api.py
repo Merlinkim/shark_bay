@@ -22,6 +22,7 @@ from app.strategy_registry import list_strategy_specs
 from app.experiments import ResearchExperimentRepository, run_real_backtest_experiment
 from app.research_analytics import build_research_analytics
 from app.dataset_splits import build_split_payload
+from app.walk_forward import run_walk_forward_backtest
 from app.backtest import (
     BacktestRunRepository,
     CandleRepository,
@@ -583,6 +584,40 @@ def research_dataset_splits(
         test_days=test_days,
         step_days=step_days,
     )
+
+
+@app.get("/research/walk-forward/run")
+def research_walk_forward_run(
+    strategy: str = Query(...),
+    symbol: str = Query("BTCUSDT", min_length=3, max_length=20, pattern=r"^[A-Z0-9]+$"),
+    interval: str = Query("1m", pattern=r"^(1m)$"),
+    start: datetime = Query(...),
+    end: datetime = Query(...),
+    train_days: int = Query(180, ge=1),
+    validation_days: int = Query(30, ge=1),
+    test_days: int = Query(30, ge=1),
+    step_days: int | None = Query(None, ge=1),
+    include_holdout: bool = Query(False),
+    persist: bool = Query(False),
+):
+    try:
+        return run_walk_forward_backtest(
+            strategy=strategy,
+            symbol=symbol,
+            interval=interval,
+            start=start.astimezone(timezone.utc),
+            end=end.astimezone(timezone.utc),
+            train_days=train_days,
+            validation_days=validation_days,
+            test_days=test_days,
+            step_days=step_days,
+            include_holdout=include_holdout,
+            persist=persist,
+            db_url=get_db_url(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
 @app.get("/research/experiments/{experiment_id}")
 def get_research_experiment(experiment_id: str):
     try:

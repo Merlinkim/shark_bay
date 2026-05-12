@@ -128,5 +128,22 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()['summary']['total_experiments'], 0)
 
+
+    @patch('app.api.run_walk_forward_backtest')
+    def test_research_walk_forward_endpoint(self, wf_run):
+        wf_run.return_value = {'strategy_name': 'ema_cross_v1', 'window_count': 1, 'windows': [], 'aggregate': {}}
+        r = self.client.get('/research/walk-forward/run', params={
+            'strategy': 'ema_cross_v1',
+            'symbol': 'BTCUSDT',
+            'interval': '1m',
+            'start': '2024-04-01T00:00:00Z',
+            'end': '2025-03-31T23:59:00Z',
+            'train_days': 180,
+            'validation_days': 30,
+            'test_days': 30,
+        })
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['strategy_name'], 'ema_cross_v1')
+
 if __name__ == '__main__':
     unittest.main()
