@@ -145,5 +145,25 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()['strategy_name'], 'ema_cross_v1')
 
+
+    @patch('app.api.run_research_agent')
+    def test_research_agent_recommendations_endpoint(self, agent_run):
+        agent_run.return_value = {
+            'generated_at': '2026-01-01T00:00:00+00:00',
+            'agent_version': 'research_agent_v0',
+            'symbol': 'BTCUSDT',
+            'interval': '1m',
+            'research_summary': {},
+            'overfit_risk': {'label': 'low', 'flags': []},
+            'strategy_assessments': [],
+            'recommended_experiments': [],
+            'rejected_strategies': [],
+            'next_actions': [],
+            'safety': {'order_execution_enabled': False},
+        }
+        r = self.client.get('/research/agent/recommendations', params={'symbol':'BTCUSDT','interval':'1m'})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['agent_version'], 'research_agent_v0')
+
 if __name__ == '__main__':
     unittest.main()
