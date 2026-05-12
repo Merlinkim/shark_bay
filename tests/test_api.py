@@ -170,5 +170,22 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()['agent_version'], 'research_agent_v0')
 
+
+    @patch('app.api.psycopg.connect')
+    def test_ingestion_telemetry_shape(self, connect_mock):
+        conn = connect_mock.return_value.__enter__.return_value
+        cur = conn.cursor.return_value.__enter__.return_value
+        cur.fetchone.side_effect = [
+            {'reconnect_count': 2},
+            {'latest_candle_timestamp': None, 'upsert_total': 0},
+        ]
+        with patch('app.api._configured_symbols', return_value=['BTCUSDT']):
+            r = self.client.get('/ingestion/telemetry')
+        self.assertEqual(r.status_code, 200)
+        payload = r.json()
+        self.assertIn('symbols', payload)
+        self.assertIn('symbol_metrics', payload)
+        self.assertIn('BTCUSDT', payload['symbol_metrics'])
+
 if __name__ == '__main__':
     unittest.main()

@@ -275,6 +275,13 @@ def health_live() -> dict[str, str]:
 
 
 
+def _configured_symbols() -> list[str]:
+    import os
+
+    raw = os.getenv("SYMBOLS", "BTCUSDT")
+    parsed = [item.strip().upper() for item in raw.split(",") if item.strip()]
+    return list(dict.fromkeys(parsed)) or ["BTCUSDT"]
+
 
 def get_active_symbols() -> list[str]:
     try:
@@ -354,6 +361,35 @@ def ingestion_status():
         "heartbeat": hb,
     }
 
+
+
+
+@app.get("/ingestion/telemetry")
+def ingestion_telemetry():
+    symbols = _configured_symbols()
+    symbol_metrics: dict[str, dict[str, Any]] = {}
+    try:
+        with psycopg.connect(get_db_url(), row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT reconnect_count FROM collector_heartbeat WHERE collector_name='ingestor'")
+                hb = cur.fetchone() or {}
+                reconnect_total = int(hb.get("reconnect_count") or 0)
+                for symbol in symbols:
+                    cur.execute("SELECT MAX(open_time) AS latest_candle_timestamp, COUNT(*) AS upsert_total FROM candles_1m WHERE symbol=%s", (symbol,))
+                    row = cur.fetchone() or {}
+                    latest = row.get("latest_candle_timestamp")
+                    lag = (datetime.now(timezone.utc) - latest).total_seconds() if latest else None
+                    symbol_metrics[symbol] = {
+                        "latest_candle_timestamp": latest,
+                        "ingestion_lag_seconds": lag,
+                        "reconnect_total": reconnect_total,
+                        "upsert_total": int(row.get("upsert_total") or 0),
+                    }
+    except psycopg.Error:
+        logger.exception("database_error_fetching_ingestion_telemetry")
+        raise HTTPException(status_code=500, detail="Database error")
+
+    return {"symbols": symbols, "symbol_metrics": symbol_metrics}
 
 @app.get("/metrics")
 def metrics() -> Response:

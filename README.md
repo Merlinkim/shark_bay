@@ -101,6 +101,7 @@ Notes:
   - `GET /health/ready` (includes DB check)
   - `GET /candles?symbol=BTCUSDT&interval=1m&limit=100`
   - `GET /ingestion/status`
+  - `GET /ingestion/telemetry`
   - `GET /metrics`
 - Emits API request count and latency metrics from middleware.
 
@@ -168,15 +169,17 @@ Host-mapped ports from Compose:
 
 Implemented metrics (from `app/metrics.py`):
 
-- `candle_insert_total` (Counter)
+- `candle_upsert_total{symbol}` (Counter)
 - `duplicate_candle_total` (Counter)
 - `ingest_error_total` (Counter)
-- `websocket_reconnect_total` (Counter)
+- `websocket_reconnect_total{symbol}` (Counter)
 - `rest_backfill_requested_total` (Counter)
 - `rest_backfill_completed_total` (Counter)
 - `rest_backfill_failed_total` (Counter)
 - `rest_backfill_candles_inserted_total` (Counter)
-- `latest_candle_timestamp` (Gauge)
+- `last_candle_timestamp{symbol}` (Gauge)
+- `ingestion_lag_seconds{symbol}` (Gauge)
+- `websocket_message_total{symbol}` (Counter)
 - `invalid_ohlc_total` (Counter, cumulative validation events)
 - `invalid_volume_total` (Counter, cumulative validation events)
 - `future_timestamp_total` (Counter, cumulative validation events)

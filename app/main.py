@@ -31,6 +31,8 @@ from app.metrics import (
     rest_backfill_failed_total,
     rest_backfill_requested_total,
     websocket_reconnect_total,
+    ingestion_lag_seconds,
+    websocket_message_total,
 )
 from app.observability import StructuredLogger, configure_logging
 
@@ -242,14 +244,14 @@ def recover_recent_gap(conn, logger, symbol: str, metrics: IngestionMetrics):
             candle = parse_kline(symbol, k)
             record_candle_quality_metrics(candle)
             inserted = upsert_candle(conn, candle)
-            candle_insert_total.inc()
+            candle_insert_total.labels(symbol=active_symbol).inc()
             if inserted:
                 inserted_count += 1
                 data_quality_duplicate_count.set(0)
             else:
                 duplicate_candle_total.inc()
                 data_quality_duplicate_count.set(1)
-            latest_candle_timestamp.set(candle["open_time"].timestamp())
+            latest_candle_timestamp.labels(symbol=active_symbol).set(candle["open_time"].timestamp())
         rest_backfill_candles_inserted_total.inc(inserted_count)
         rest_backfill_completed_total.inc()
         metrics.last_backfill_status = "completed"
@@ -379,10 +381,12 @@ def run():
                                 candle = parse_kline(active_symbol, k)
                                 record_candle_quality_metrics(candle)
                                 inserted = upsert_candle(conn, candle)
-                                candle_insert_total.inc()
+                                candle_insert_total.labels(symbol=active_symbol).inc()
                                 if not inserted:
                                     duplicate_candle_total.inc()
-                                latest_candle_timestamp.set(candle["open_time"].timestamp())
+                                latest_candle_timestamp.labels(symbol=active_symbol).set(candle["open_time"].timestamp())
+                                ingestion_lag_seconds.labels(symbol=active_symbol).set(max(0.0, (datetime.now(timezone.utc) - candle["open_time"]).total_seconds()))
+                                websocket_message_total.labels(symbol=active_symbol).inc()
                                 logger.info("candle_upsert", symbol=active_symbol, open_time=candle["open_time"], inserted=inserted)
                         metrics.success_count += 1
                         metrics.last_success_at = datetime.now(timezone.utc).isoformat()
@@ -398,7 +402,8 @@ def run():
                     time.sleep(poll_seconds)
         except Exception as exc:
             metrics.reconnect_count += 1
-            websocket_reconnect_total.inc()
+            for active_symbol in symbols:
+                websocket_reconnect_total.labels(symbol=active_symbol).inc()
             for active_symbol in symbols:
                 reconnect_by_symbol[active_symbol] += 1
                 symbol_reconnect_total.labels(symbol=active_symbol).inc()

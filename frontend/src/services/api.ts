@@ -3,6 +3,7 @@ import type { HealthResponse, IngestionApiResponse } from '../types/status';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
 export type ActiveSymbolsResponse = { symbols: string[]; count: number; };
+export type IngestionTelemetryResponse = { symbols: string[]; symbol_metrics: Record<string, { latest_candle_timestamp: string | null; ingestion_lag_seconds: number | null; reconnect_total: number; upsert_total: number; }>; };
 
 export type ResearchFeatureResponse = {
   symbol: string;
@@ -82,6 +83,7 @@ export const api = {
   health: () => getJson<HealthResponse>('/health'),
   ingestionStatus: () => getJson<IngestionApiResponse>('/ingestion/status'),
   activeSymbols: () => getJson<ActiveSymbolsResponse>('/symbols/active'),
+  ingestionTelemetry: () => getJson<IngestionTelemetryResponse>('/ingestion/telemetry'),
   researchFeatures: (symbol = 'BTCUSDT', interval = '1m', lookbackHours = 24) => getJson<ResearchFeatureResponse>(`/research/features?symbol=${symbol}&interval=${interval}&lookback_hours=${lookbackHours}`),
   strategyRegistry: () => getJson<{ strategies: StrategyRegistrySpec[] }>('/strategies/registry'),
   latestExperiments: (symbol = 'BTCUSDT', interval = '1m', limit = 20) => getJson<{ experiments: ExperimentResult[] }>(`/research/experiments/latest?symbol=${symbol}&interval=${interval}&limit=${limit}`),
