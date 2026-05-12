@@ -21,7 +21,7 @@ services:
       context: ./app
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@db:5432/market_data}
-      SYMBOL: ${SYMBOL:-BTCUSDT}
+      SYMBOLS: ${SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT}
       POLL_SECONDS: ${POLL_SECONDS:-10}
       METRICS_PORT: ${METRICS_PORT:-9100}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}

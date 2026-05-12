@@ -114,3 +114,19 @@ api_request_latency_seconds = Histogram(
     ["method", "path"],
     buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
 )
+
+active_symbol_count = Gauge(
+    "active_symbol_count",
+    "Number of active symbols configured for ingestion",
+)
+
+websocket_stream_count = Gauge(
+    "websocket_stream_count",
+    "Number of websocket streams configured for ingestion",
+)
+
+symbol_reconnect_total = Counter(
+    "symbol_reconnect_total",
+    "Reconnect attempts attributed per symbol",
+    ["symbol"],
+)

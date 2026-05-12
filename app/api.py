@@ -273,6 +273,25 @@ def health_live() -> dict[str, str]:
     return {"status": "LIVE"}
 
 
+
+
+
+def get_active_symbols() -> list[str]:
+    try:
+        with psycopg.connect(get_db_url()) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT DISTINCT symbol FROM candles_1m ORDER BY symbol ASC")
+                rows = cur.fetchall()
+        return [row[0] for row in rows]
+    except Exception:
+        return []
+
+
+@app.get("/symbols/active")
+def symbols_active():
+    symbols = get_active_symbols()
+    return {"symbols": symbols, "count": len(symbols)}
+
 @app.get("/candles")
 def get_candles(
     symbol: str = Query(..., min_length=3, max_length=20, pattern=r"^[A-Z0-9]+$"),
