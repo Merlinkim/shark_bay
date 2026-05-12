@@ -691,6 +691,8 @@ curl -sS http://localhost:9090/api/v1/targets
 
 For detailed failure triage and copy-paste debugging commands, see `docs/agent_debugging.md`.
 
+For local OpenClaw + Ollama + Gemma4 research-agent setup (research-only, no execution), see `docs/openclaw_ollama_research_agent.md` and the prompt template `docs/prompts/research_agent_openclaw.md`.
+
 
 ### Local React dev CORS
 
