@@ -55,6 +55,21 @@ export type StrategyRegistrySpec = {
   updated_at: string;
 };
 
+
+export type ResearchAgentRecommendation = {
+  generated_at: string;
+  agent_version: string;
+  symbol: string;
+  interval: string;
+  research_summary: { strategy_count: number; latest_experiment_count: number; analytics_total_experiments: number; notes: string[] };
+  overfit_risk: { label: string; flags: string[] };
+  strategy_assessments: Array<Record<string, unknown>>;
+  recommended_experiments: Array<{ strategy_name: string; reason: string; proposed_params: Record<string, unknown>; proposed_date_range: Record<string, string | null>; priority: string; safety_note: string }>;
+  rejected_strategies: Array<{ strategy_name: string; reason: string; severity: string; safety_note: string }>;
+  next_actions: string[];
+  safety: Record<string, boolean>;
+};
+
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`);
   if (!response.ok) throw new Error(`${path} failed with ${response.status}`);
@@ -68,6 +83,13 @@ export const api = {
   strategyRegistry: () => getJson<{ strategies: StrategyRegistrySpec[] }>('/strategies/registry'),
   latestExperiments: (symbol = 'BTCUSDT', interval = '1m', limit = 20) => getJson<{ experiments: ExperimentResult[] }>(`/research/experiments/latest?symbol=${symbol}&interval=${interval}&limit=${limit}`),
   researchAnalytics: (symbol = 'BTCUSDT', interval = '1m', limit = 100) => getJson<ResearchAnalyticsResponse>(`/research/analytics?symbol=${symbol}&interval=${interval}&limit=${limit}`),
+  researchAgentRecommendations: (symbol = 'BTCUSDT', interval = '1m', strategy?: string, start?: string, end?: string) => {
+    const params = new URLSearchParams({ symbol, interval });
+    if (strategy) params.set('strategy', strategy);
+    if (start) params.set('start', start);
+    if (end) params.set('end', end);
+    return getJson<ResearchAgentRecommendation>(`/research/agent/recommendations?${params.toString()}`);
+  },
 };
 
 

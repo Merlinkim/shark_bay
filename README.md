@@ -851,3 +851,45 @@ curl "http://localhost:8000/research/experiments/run?strategy=ema_cross_v1&symbo
 curl "http://localhost:8000/research/experiments/<experiment_id>/equity-curve"
 curl "http://localhost:8000/research/experiments/<experiment_id>/fills"
 ```
+
+## Research Agent v0 (deterministic recommendation-only)
+
+`Research Agent v0` adds a rule-based layer that analyzes strategy registry metadata, research analytics, persisted experiment results, optional walk-forward payloads, and optional feature snapshots to recommend deterministic next experiments.
+
+Safety scope (hard limits):
+- no live trading
+- no paper trading
+- no order execution
+- no autonomous code modification
+- no direct exchange access
+
+### CLI
+
+```bash
+python -m app.research_agent \
+  --symbol BTCUSDT \
+  --interval 1m \
+  --strategy ema_cross_v1 \
+  --start "2024-04-01T00:00:00Z" \
+  --end "2025-03-31T23:59:00Z"
+```
+
+CLI output is JSON only.
+
+### API
+
+```bash
+curl "http://localhost:8000/research/agent/recommendations?symbol=BTCUSDT&interval=1m&strategy=ema_cross_v1&start=2024-04-01T00:00:00Z&end=2025-03-31T23:59:00Z"
+```
+
+Endpoint:
+- `GET /research/agent/recommendations`
+
+The response includes:
+- `research_summary`
+- `overfit_risk`
+- `strategy_assessments`
+- `recommended_experiments`
+- `rejected_strategies`
+- `next_actions`
+- explicit safety flags indicating recommendation-only behavior.

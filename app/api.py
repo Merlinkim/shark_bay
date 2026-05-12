@@ -23,6 +23,7 @@ from app.experiments import ResearchExperimentRepository, run_real_backtest_expe
 from app.research_analytics import build_research_analytics
 from app.dataset_splits import build_split_payload
 from app.walk_forward import run_walk_forward_backtest
+from app.research_agent import run_agent as run_research_agent
 from app.backtest import (
     BacktestRunRepository,
     CandleRepository,
@@ -614,6 +615,27 @@ def research_walk_forward_run(
             include_holdout=include_holdout,
             persist=persist,
             db_url=get_db_url(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+
+@app.get("/research/agent/recommendations")
+def research_agent_recommendations(
+    symbol: str = Query("BTCUSDT", min_length=3, max_length=20, pattern=r"^[A-Z0-9]+$"),
+    interval: str = Query("1m", pattern=r"^(1m)$"),
+    strategy: str | None = Query(None),
+    start: datetime | None = Query(None),
+    end: datetime | None = Query(None),
+):
+    try:
+        return run_research_agent(
+            symbol=symbol,
+            interval=interval,
+            strategy=strategy,
+            start=start.astimezone(timezone.utc) if start else None,
+            end=end.astimezone(timezone.utc) if end else None,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
