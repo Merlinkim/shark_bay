@@ -420,3 +420,4 @@ class MyNewStrategy:
     def on_candle(self, candle: Candle) -> int:
         return 0
 ```
+
