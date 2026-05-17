@@ -693,6 +693,8 @@ For detailed failure triage and copy-paste debugging commands, see `docs/agent_d
 
 For local OpenClaw + Ollama + Gemma4 research-agent setup (research-only, no execution), see `docs/openclaw_ollama_research_agent.md` and the prompt template `docs/prompts/research_agent_openclaw.md`.
 
+For a full API audit and expansion roadmap for multi-agent deterministic research workflows, see `docs/api_architecture_review.md`.
+
 
 ### Local React dev CORS
 
