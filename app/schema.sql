@@ -78,7 +78,8 @@ CREATE TABLE IF NOT EXISTS backtest_metrics (
   profit_factor DOUBLE PRECISION NOT NULL,
   average_trade_return DOUBLE PRECISION NOT NULL,
   trade_count INTEGER NOT NULL,
-  win_rate DOUBLE PRECISION NOT NULL
+  win_rate DOUBLE PRECISION NOT NULL,
+  total_fees DOUBLE PRECISION NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS backtest_equity_curve (

@@ -255,6 +255,7 @@ class BacktestResult:
     max_drawdown_pct: float
     profit_factor: float
     average_trade_return_pct: float
+    total_fees: float
     summary_timestamp: str
     config_hash: str
     dataset_fingerprint: str
@@ -274,10 +275,17 @@ class DatasetFingerprint:
 
 
 class SimulatedExecutionModel:
-    """Simple deterministic close-to-close executor (no slippage/fees)."""
+    """Deterministic executor with slippage and fee support."""
 
-    def __init__(self, initial_cash: float = 10_000.0):
+    def __init__(
+        self,
+        initial_cash: float = 10_000.0,
+        fee_rate: float = 0.0006,  # Default 0.06% (e.g. Binance spot taker)
+        slippage_rate: float = 0.0001,  # Default 0.01%
+    ):
         self.initial_cash = initial_cash
+        self.fee_rate = fee_rate
+        self.slippage_rate = slippage_rate
 
     def run(
         self,
@@ -289,27 +297,29 @@ class SimulatedExecutionModel:
         candle_list = list(candles)
         if len(candle_list) < 2:
             return BacktestResult(
-                0.0,
-                0,
-                0.0,
-                self.initial_cash,
-                0.0,
-                0.0,
-                0.0,
-                "N/A",
-                config_hash,
-                dataset_fingerprint.fingerprint,
-                dataset_fingerprint.row_count,
-                dataset_fingerprint.min_open_time.isoformat() if dataset_fingerprint.min_open_time else None,
-                dataset_fingerprint.max_open_time.isoformat() if dataset_fingerprint.max_open_time else None,
-                [],
-                [],
+                total_return_pct=0.0,
+                trades=0,
+                win_rate_pct=0.0,
+                final_equity=self.initial_cash,
+                max_drawdown_pct=0.0,
+                profit_factor=0.0,
+                average_trade_return_pct=0.0,
+                total_fees=0.0,
+                summary_timestamp="N/A",
+                config_hash=config_hash,
+                dataset_fingerprint=dataset_fingerprint.fingerprint,
+                dataset_row_count=dataset_fingerprint.row_count,
+                dataset_min_open_time=dataset_fingerprint.min_open_time.isoformat() if dataset_fingerprint.min_open_time else None,
+                dataset_max_open_time=dataset_fingerprint.max_open_time.isoformat() if dataset_fingerprint.max_open_time else None,
+                equity_curve=[],
+                fills=[],
             )
 
         equity = self.initial_cash
         position = 0
         trades = 0
         wins = 0
+        total_fees = 0.0
         gross_profit = 0.0
         gross_loss = 0.0
         trade_returns: list[float] = []
@@ -322,19 +332,36 @@ class SimulatedExecutionModel:
 
             target_position = strategy.on_candle(candle_list[i - 1])
             if target_position != position:
+                # Execution with slippage
+                # If buying (position increasing), price is higher. If selling, price is lower.
+                direction = 1 if target_position > position else -1
+                exec_price = curr_close * (1.0 + (direction * self.slippage_rate))
+                
+                # Fees are calculated on the notion value of the trade
+                trade_value = abs(target_position - position) * exec_price
+                # In this simple model, 1 unit is 'all in' or 'all out' based on current equity
+                # To keep it simple and consistent with the previous model, we assume the trade 
+                # size is based on the current equity value at the exec price.
+                fee = equity * abs(target_position - position) * self.fee_rate
+                equity -= fee
+                total_fees += fee
+
                 trades += 1
                 fills.append(
                     Fill(
                         open_time=candle_list[i].open_time,
                         prev_position=position,
                         new_position=target_position,
-                        exec_price=curr_close,
+                        exec_price=exec_price,
                     )
                 )
                 position = target_position
 
+            # PnL calculation remains close-to-close for simplicity, 
+            # but we use the adjusted equity from fees.
             ret = (curr_close - prev_close) / prev_close
             pnl = equity * position * ret
+            
             if pnl > 0:
                 wins += 1
                 gross_profit += pnl
@@ -370,6 +397,7 @@ class SimulatedExecutionModel:
             max_drawdown_pct=max_drawdown_pct,
             profit_factor=profit_factor,
             average_trade_return_pct=avg_trade_return_pct,
+            total_fees=total_fees,
             summary_timestamp=summary_timestamp,
             config_hash=config_hash,
             dataset_fingerprint=dataset_fingerprint.fingerprint,
@@ -379,6 +407,7 @@ class SimulatedExecutionModel:
             equity_curve=equity_curve,
             fills=fills,
         )
+
 
 
 def build_config_hash(config: dict[str, object]) -> str:
@@ -485,8 +514,8 @@ class BacktestRunRepository:
                     """
                     INSERT INTO backtest_metrics (
                         run_id, total_return, final_equity, max_drawdown, profit_factor,
-                        average_trade_return, trade_count, win_rate
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        average_trade_return, trade_count, win_rate, total_fees
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         run_id,
@@ -497,6 +526,7 @@ class BacktestRunRepository:
                         result.average_trade_return_pct,
                         result.trades,
                         result.win_rate_pct,
+                        result.total_fees,
                     ),
                 )
                 cur.executemany(
@@ -545,7 +575,7 @@ class BacktestRunRepository:
                            r.config_hash, r.dataset_fingerprint, r.created_at,
                            r.deterministic_summary_timestamp, r.failure_reason,
                            m.total_return, m.final_equity, m.max_drawdown, m.profit_factor,
-                           m.average_trade_return, m.trade_count, m.win_rate
+                           m.average_trade_return, m.trade_count, m.win_rate, m.total_fees
                     FROM backtest_runs r
                     LEFT JOIN backtest_metrics m ON m.run_id = r.run_id
                     WHERE r.run_id = %s
@@ -590,6 +620,8 @@ def run_local_backtest(
     short_window: int,
     long_window: int,
     output_dir: str,
+    fee_rate: float = 0.0006,
+    slippage_rate: float = 0.0001,
     start_time: datetime | None = None,
     end_time: datetime | None = None,
     save_results: bool = True,
@@ -603,6 +635,8 @@ def run_local_backtest(
         "interval": interval,
         "short_window": short_window,
         "long_window": long_window,
+        "fee_rate": fee_rate,
+        "slippage_rate": slippage_rate,
         "initial_cash": 10_000.0,
     }
     if limit is not None:
@@ -622,7 +656,7 @@ def run_local_backtest(
         strategy_name="sma_crossover",
         strategy_params={"short_window": short_window, "long_window": long_window},
     )
-    engine = SimulatedExecutionModel(initial_cash=10_000.0)
+    engine = SimulatedExecutionModel(initial_cash=10_000.0, fee_rate=fee_rate, slippage_rate=slippage_rate)
     run_repo = BacktestRunRepository(db_url)
     run_id = run_repo.create_run(
         symbol=symbol,
@@ -649,6 +683,8 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--short-window", type=int, default=5)
     parser.add_argument("--long-window", type=int, default=20)
+    parser.add_argument("--fee-rate", type=float, default=0.0006, help="Trading fee rate (e.g. 0.0006 for 0.06%)")
+    parser.add_argument("--slippage-rate", type=float, default=0.0001, help="Slippage rate (e.g. 0.0001 for 0.01%)")
     parser.add_argument("--output-dir", default="backtest_results")
     parser.add_argument("--start-time", default=None, help="Inclusive ISO-8601 UTC lower bound for open_time")
     parser.add_argument("--end-time", default=None, help="Inclusive ISO-8601 UTC upper bound for open_time")
@@ -665,6 +701,8 @@ def main() -> None:
         short_window=args.short_window,
         long_window=args.long_window,
         output_dir=args.output_dir,
+        fee_rate=args.fee_rate,
+        slippage_rate=args.slippage_rate,
         start_time=start_time,
         end_time=end_time,
         save_results=(args.save_results == "true"),
@@ -678,6 +716,7 @@ def main() -> None:
     print(f"Dataset Min Open Time: {result.dataset_min_open_time}")
     print(f"Dataset Max Open Time: {result.dataset_max_open_time}")
     print(f"Total Return: {result.total_return_pct:.2f}%")
+    print(f"Total Fees: {result.total_fees:.4f}")
     print(f"Trades: {result.trades}")
     print(f"Win Rate: {result.win_rate_pct:.2f}%")
     print(f"Final Equity: {result.final_equity:.2f}")
@@ -686,6 +725,7 @@ def main() -> None:
     print(f"Average Trade Return: {result.average_trade_return_pct:.4f}%")
     print(f"Results Directory: {run_dir if run_dir is not None else 'not saved (--save-results false)'}")
     print(f"Persisted Run ID: {run_id}")
+
 
 
 if __name__ == "__main__":
