@@ -173,9 +173,63 @@ class SmaCrossoverStrategy:
         return 0
 
 
+class BollingerRsiStrategy:
+    strategy_name = "bb_rsi_reversion"
+    description = "Mean reversion using Bollinger Bands and RSI."
+    parameter_schema = {
+        "bb_window": {"type": "int", "min": 2, "max": 200},
+        "bb_stddev": {"type": "float", "min": 0.1, "max": 5.0},
+        "rsi_window": {"type": "int", "min": 2, "max": 100},
+        "rsi_lower": {"type": "int", "min": 1, "max": 50},
+        "rsi_upper": {"type": "int", "min": 51, "max": 99},
+    }
+    default_parameters = {
+        "bb_window": 20,
+        "bb_stddev": 2.0,
+        "rsi_window": 14,
+        "rsi_lower": 30,
+        "rsi_upper": 70,
+    }
+
+    def __init__(self, bb_window=20, bb_stddev=2.0, rsi_window=14, rsi_lower=30, rsi_upper=70, **kwargs):
+        self.bb_window = int(bb_window)
+        self.bb_stddev = Decimal(str(bb_stddev))
+        self.rsi_window = int(rsi_window)
+        self.rsi_lower = int(rsi_lower)
+        self.rsi_upper = int(rsi_upper)
+        self.closes: list[Decimal] = []
+        self.current_position = 0
+
+    def on_candle(self, candle: Candle) -> int:
+        self.closes.append(candle.close)
+        bb = IndicatorLibrary.bollinger_bands(self.closes, self.bb_window, self.bb_stddev)
+        rsi = IndicatorLibrary.rsi(self.closes, self.rsi_window)
+
+        if bb is None or rsi is None:
+            return 0
+
+        lower_band, mid_band, upper_band = bb
+        price = candle.close
+
+        # Long Entry: Price below lower band and RSI oversold
+        if self.current_position == 0 and price < lower_band and rsi < self.rsi_lower:
+            self.current_position = 1
+        # Short Entry: Price above upper band and RSI overbought
+        elif self.current_position == 0 and price > upper_band and rsi > self.rsi_upper:
+            self.current_position = -1
+        # Exit Long: Price reaches mid band
+        elif self.current_position == 1 and price >= mid_band:
+            self.current_position = 0
+        # Exit Short: Price reaches mid band
+        elif self.current_position == -1 and price <= mid_band:
+            self.current_position = 0
+
+        return self.current_position
+
+
 class StrategyRegistry:
     def __init__(self):
-        self._strategies: dict[str, type[SmaCrossoverStrategy]] = {}
+        self._strategies: dict[str, type] = {}
 
     def register(self, strategy_cls):
         self._strategies[strategy_cls.strategy_name] = strategy_cls
@@ -186,9 +240,9 @@ class StrategyRegistry:
         for name, cls in self._strategies.items():
             out[name] = {
                 "strategy_name": name,
-                "description": cls.description,
-                "parameter_schema": cls.parameter_schema,
-                "default_parameters": cls.default_parameters,
+                "description": getattr(cls, "description", ""),
+                "parameter_schema": getattr(cls, "parameter_schema", {}),
+                "default_parameters": getattr(cls, "default_parameters", {}),
             }
         return out
 
@@ -196,9 +250,9 @@ class StrategyRegistry:
         cls = self._strategies.get(strategy_name)
         if cls is None:
             raise ValueError("Unknown strategy_name")
-        merged = dict(cls.default_parameters)
+        merged = dict(getattr(cls, "default_parameters", {}))
         merged.update(strategy_params)
-        for key, spec in cls.parameter_schema.items():
+        for key, spec in getattr(cls, "parameter_schema", {}).items():
             if key not in merged:
                 raise ValueError(f"Missing strategy parameter: {key}")
             value = merged[key]
@@ -207,10 +261,16 @@ class StrategyRegistry:
                     value = int(value)
                 except (TypeError, ValueError):
                     raise ValueError(f"Invalid int parameter: {key}")
-                if "min" in spec and value < int(spec["min"]):
-                    raise ValueError(f"Parameter {key} below minimum")
-                if "max" in spec and value > int(spec["max"]):
-                    raise ValueError(f"Parameter {key} above maximum")
+            elif spec.get("type") == "float":
+                try:
+                    value = float(value)
+                except (TypeError, ValueError):
+                    raise ValueError(f"Invalid float parameter: {key}")
+                
+            if "min" in spec and value < spec["min"]:
+                raise ValueError(f"Parameter {key} below minimum")
+            if "max" in spec and value > spec["max"]:
+                raise ValueError(f"Parameter {key} above maximum")
             merged[key] = value
         return merged
 
@@ -224,6 +284,7 @@ class StrategyRegistry:
 
 strategy_registry = StrategyRegistry()
 strategy_registry.register(SmaCrossoverStrategy)
+strategy_registry.register(BollingerRsiStrategy)
 
 
 def build_strategy(strategy_name: str, strategy_params: dict[str, object]) -> Strategy:

@@ -1,0 +1,18 @@
+{
+  "total_return_pct": -7.588260105341682,
+  "trades": 73,
+  "win_rate_pct": 49.349349349349346,
+  "final_equity": 9241.173989465831,
+  "max_drawdown_pct": 7.588260105341687,
+  "profit_factor": 1.0380717891559528,
+  "average_trade_return_pct": 0.0008528020333661799,
+  "total_fees": 836.9738144314042,
+  "summary_timestamp": "2024-04-01T16:39:00+00:00",
+  "config_hash": "943b8713305a53bd",
+  "dataset_fingerprint": "305bc62d00b5d383",
+  "dataset_row_count": 1000,
+  "dataset_min_open_time": "2024-04-01T00:00:00+00:00",
+  "dataset_max_open_time": "2024-04-01T16:39:00+00:00",
+  "equity_curve": 1000,
+  "fills": 73
+}
