@@ -11,6 +11,14 @@ This repository runs a small market-data platform composed of:
 ---
 
 
+## Documentation
+
+- [Codebase Whitepaper](docs/codebase_whitepaper.md)
+- [Research API Reference](docs/research_api_reference.md)
+- [Research API Gap Analysis](docs/research_api_gap_analysis.md)
+
+---
+
 ## CI (GitHub Actions)
 
 A lightweight CI workflow runs on every pull request and on pushes to `main` via `.github/workflows/ci.yml`.
