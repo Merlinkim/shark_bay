@@ -10,7 +10,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import Iterable, Protocol
+from typing import Iterable, Protocol, Any
 
 import psycopg
 from psycopg.rows import dict_row
@@ -227,72 +227,61 @@ class BollingerRsiStrategy:
         return self.current_position
 
 
-class StrategyRegistry:
-    def __init__(self):
-        self._strategies: dict[str, type] = {}
+class DynamicSignalStrategy:
+    def __init__(self, strategy_id: str, module: Any, params: dict[str, object]):
+        self.strategy_name = strategy_id
+        self.module = module
+        self.params = params
+        self._signals: list[int] = []
+        self._cursor = 0
 
-    def register(self, strategy_cls):
-        self._strategies[strategy_cls.strategy_name] = strategy_cls
-        return strategy_cls
+    def set_candles(self, candles: list[Candle]) -> None:
+        frame = [{"open_time": c.open_time, "close": float(c.close), "symbol": c.symbol} for c in candles]
+        prepared = self.module.prepare_features(frame, self.params)
+        signal_rows = self.module.generate_signals(prepared, self.params)
+        self._signals = [int(row.get("signal", 0)) for row in signal_rows]
+        self._cursor = 0
 
-    def list_metadata(self) -> dict[str, dict[str, object]]:
-        out: dict[str, dict[str, object]] = {}
-        for name, cls in self._strategies.items():
-            out[name] = {
-                "strategy_name": name,
-                "description": getattr(cls, "description", ""),
-                "parameter_schema": getattr(cls, "parameter_schema", {}),
-                "default_parameters": getattr(cls, "default_parameters", {}),
-            }
-        return out
-
-    def validate_params(self, strategy_name: str, strategy_params: dict[str, object]) -> dict[str, object]:
-        cls = self._strategies.get(strategy_name)
-        if cls is None:
-            raise ValueError("Unknown strategy_name")
-        merged = dict(getattr(cls, "default_parameters", {}))
-        merged.update(strategy_params)
-        for key, spec in getattr(cls, "parameter_schema", {}).items():
-            if key not in merged:
-                raise ValueError(f"Missing strategy parameter: {key}")
-            value = merged[key]
-            if spec.get("type") == "int":
-                try:
-                    value = int(value)
-                except (TypeError, ValueError):
-                    raise ValueError(f"Invalid int parameter: {key}")
-            elif spec.get("type") == "float":
-                try:
-                    value = float(value)
-                except (TypeError, ValueError):
-                    raise ValueError(f"Invalid float parameter: {key}")
-                
-            if "min" in spec and value < spec["min"]:
-                raise ValueError(f"Parameter {key} below minimum")
-            if "max" in spec and value > spec["max"]:
-                raise ValueError(f"Parameter {key} above maximum")
-            merged[key] = value
-        return merged
-
-    def build(self, strategy_name: str, strategy_params: dict[str, object]) -> Strategy:
-        cls = self._strategies.get(strategy_name)
-        if cls is None:
-            raise ValueError("Unknown strategy_name")
-        params = self.validate_params(strategy_name, strategy_params)
-        return cls(**params)
+    def on_candle(self, candle: Candle) -> int:
+        if self._cursor >= len(self._signals):
+            return 0
+        sig = self._signals[self._cursor]
+        self._cursor += 1
+        return sig
 
 
-strategy_registry = StrategyRegistry()
-strategy_registry.register(SmaCrossoverStrategy)
-strategy_registry.register(BollingerRsiStrategy)
+def _validate_params(meta: dict[str, object], strategy_params: dict[str, object]) -> dict[str, object]:
+    schema = meta.get("parameter_schema", {})
+    merged = dict(meta.get("default_parameters", {}))
+    merged.update(strategy_params)
+    for key, spec in schema.items():
+        if key not in merged:
+            raise ValueError(f"Missing strategy parameter: {key}")
+        value = merged[key]
+        if spec.get("type") == "int":
+            value = int(value)
+        elif spec.get("type") == "float":
+            value = float(value)
+        if "min" in spec and value < spec["min"]:
+            raise ValueError(f"Parameter {key} below minimum")
+        if "max" in spec and value > spec["max"]:
+            raise ValueError(f"Parameter {key} above maximum")
+        merged[key] = value
+    return merged
 
 
 def build_strategy(strategy_name: str, strategy_params: dict[str, object]) -> Strategy:
-    return strategy_registry.build(strategy_name, strategy_params)
+    from app.strategy_loader import strategy_loader
+    definition = strategy_loader.get(strategy_name)
+    params = _validate_params(definition.meta, strategy_params)
+    return DynamicSignalStrategy(strategy_name, definition.module, params)
 
 
 def get_strategy_registry_metadata() -> dict[str, dict[str, object]]:
-    return strategy_registry.list_metadata()
+    from app.strategy_loader import strategy_loader
+    return strategy_loader.list_metadata()
+
+
 @dataclass(frozen=True)
 class EquityPoint:
     open_time: datetime
@@ -356,6 +345,9 @@ class SimulatedExecutionModel:
         dataset_fingerprint: DatasetFingerprint,
     ) -> BacktestResult:
         candle_list = list(candles)
+        if hasattr(strategy, "set_candles"):
+            strategy.set_candles(candle_list)
+
         if len(candle_list) < 2:
             return BacktestResult(
                 total_return_pct=0.0,

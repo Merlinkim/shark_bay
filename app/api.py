@@ -18,7 +18,6 @@ from psycopg.rows import dict_row
 from app.metrics import api_request_latency_seconds, api_request_total, db_connection_status
 from app.observability import StructuredLogger, configure_logging
 from app.features import build_snapshot
-from app.strategy_registry import list_strategy_specs
 from app.experiments import ResearchExperimentRepository, run_real_backtest_experiment
 from app.research_analytics import build_research_analytics
 from app.dataset_splits import build_split_payload
@@ -28,7 +27,6 @@ from app.backtest import (
     BacktestRunRepository,
     CandleRepository,
     get_strategy_registry_metadata,
-    strategy_registry,
     SimulatedExecutionModel,
     build_config_hash,
     build_dataset_fingerprint,
@@ -411,7 +409,14 @@ def list_strategy_registry(
     symbol: str | None = Query(default=None),
     interval: str | None = Query(default=None),
 ):
-    return {"strategies": list_strategy_specs(status=status, symbol=symbol, interval=interval)}
+    strategies = list(get_strategy_registry_metadata().values())
+    if status:
+        strategies = [s for s in strategies if s.get("status") == status]
+    if symbol:
+        strategies = [s for s in strategies if symbol in s.get("symbols", [])]
+    if interval:
+        strategies = [s for s in strategies if s.get("interval") == interval]
+    return {"strategies": strategies}
 
 
 @app.get("/backtests", response_model=list[BacktestRunSummary])
@@ -487,8 +492,7 @@ def run_backtest(request: BacktestRunRequest):
     )
     dataset_fingerprint = build_dataset_fingerprint(candles)
     try:
-        validated_params = strategy_registry.validate_params(request.strategy_name, request.strategy_params)
-        strategy = build_strategy(request.strategy_name, validated_params)
+        strategy = build_strategy(request.strategy_name, request.strategy_params)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     engine = SimulatedExecutionModel(initial_cash=10_000.0)
