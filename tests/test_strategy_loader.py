@@ -44,3 +44,10 @@ def test_sandbox_violation_rejection(tmp_path: Path):
     (root / "bad.py").write_text('import requests\nSTRATEGY_META={"strategy_id":"x","strategy_type":"signal_strategy","research_only":True}\n\ndef required_features(params): return []\ndef prepare_features(df,params): return df\ndef generate_signals(df,params): return [{"signal":0}]\n')
     with pytest.raises(ValueError, match="sandbox violation"):
         StrategyLoader([root]).discover()
+
+
+def test_invalid_strategy_type_rejection(tmp_path: Path):
+    root = tmp_path / "s"; root.mkdir()
+    (root / "bad_type.py").write_text('STRATEGY_META={"strategy_id":"x","strategy_type":"unknown","research_only":True}\n\ndef required_features(params): return []\ndef prepare_features(df,params): return df\ndef generate_signals(df,params): return [{"signal":0}]\n')
+    with pytest.raises(ValueError, match="Invalid strategy_type"):
+        StrategyLoader([root]).discover()

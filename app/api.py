@@ -23,6 +23,7 @@ from app.research_analytics import build_research_analytics
 from app.dataset_splits import build_split_payload
 from app.walk_forward import run_walk_forward_backtest
 from app.research_agent import run_agent as run_research_agent
+from app.strategy_registry import list_strategy_specs
 from app.backtest import (
     BacktestRunRepository,
     CandleRepository,
@@ -409,14 +410,7 @@ def list_strategy_registry(
     symbol: str | None = Query(default=None),
     interval: str | None = Query(default=None),
 ):
-    strategies = list(get_strategy_registry_metadata().values())
-    if status:
-        strategies = [s for s in strategies if s.get("status") == status]
-    if symbol:
-        strategies = [s for s in strategies if symbol in s.get("symbols", [])]
-    if interval:
-        strategies = [s for s in strategies if s.get("interval") == interval]
-    return {"strategies": strategies}
+    return {"strategies": list_strategy_specs(status=status, symbol=symbol, interval=interval)}
 
 
 @app.get("/backtests", response_model=list[BacktestRunSummary])
@@ -468,8 +462,11 @@ def get_backtest_equity_curve(run_id: UUID):
 
 @app.post("/backtests/run")
 def run_backtest(request: BacktestRunRequest):
-    if request.strategy_name not in get_strategy_registry_metadata():
+    discovered = get_strategy_registry_metadata()
+    if request.strategy_name not in discovered:
         raise HTTPException(status_code=400, detail="Unknown strategy_name")
+    if bool(discovered[request.strategy_name].get("metadata_only")):
+        raise HTTPException(status_code=400, detail="Strategy is metadata_only and cannot be executed")
     if request.interval != "1m":
         raise HTTPException(status_code=400, detail="Only interval=1m is supported")
 
