@@ -23,6 +23,7 @@ from app.research_analytics import build_research_analytics
 from app.dataset_splits import build_split_payload
 from app.walk_forward import run_walk_forward_backtest
 from app.research_agent import run_agent as run_research_agent
+from app.strategy_registry import list_strategy_specs
 from app.backtest import (
     BacktestRunRepository,
     CandleRepository,
@@ -97,7 +98,7 @@ class BacktestEquityPoint(BaseModel):
 
 
 class BacktestRunRequest(BaseModel):
-    strategy_name: str
+    strategy_id: str
     strategy_params: dict[str, Any] = {}
     symbol: str
     interval: str = "1m"
@@ -409,14 +410,7 @@ def list_strategy_registry(
     symbol: str | None = Query(default=None),
     interval: str | None = Query(default=None),
 ):
-    strategies = list(get_strategy_registry_metadata().values())
-    if status:
-        strategies = [s for s in strategies if s.get("status") == status]
-    if symbol:
-        strategies = [s for s in strategies if symbol in s.get("symbols", [])]
-    if interval:
-        strategies = [s for s in strategies if s.get("interval") == interval]
-    return {"strategies": strategies}
+    return {"strategies": list_strategy_specs(status=status, symbol=symbol, interval=interval)}
 
 
 @app.get("/backtests", response_model=list[BacktestRunSummary])
@@ -468,13 +462,16 @@ def get_backtest_equity_curve(run_id: UUID):
 
 @app.post("/backtests/run")
 def run_backtest(request: BacktestRunRequest):
-    if request.strategy_name not in get_strategy_registry_metadata():
-        raise HTTPException(status_code=400, detail="Unknown strategy_name")
+    discovered = get_strategy_registry_metadata()
+    if request.strategy_id not in discovered:
+        raise HTTPException(status_code=400, detail="Unknown strategy_id")
+    if bool(discovered[request.strategy_id].get("metadata_only")):
+        raise HTTPException(status_code=400, detail="Strategy is metadata_only and cannot be executed")
     if request.interval != "1m":
         raise HTTPException(status_code=400, detail="Only interval=1m is supported")
 
     config = {
-        "strategy_name": request.strategy_name,
+        "strategy_id": request.strategy_id,
         "strategy_params": request.strategy_params,
         "symbol": request.symbol,
         "interval": request.interval,
@@ -492,7 +489,7 @@ def run_backtest(request: BacktestRunRequest):
     )
     dataset_fingerprint = build_dataset_fingerprint(candles)
     try:
-        strategy = build_strategy(request.strategy_name, request.strategy_params)
+        strategy = build_strategy(request.strategy_id, request.strategy_params)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     engine = SimulatedExecutionModel(initial_cash=10_000.0)
