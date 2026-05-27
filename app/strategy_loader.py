@@ -21,7 +21,7 @@ class StrategyDefinition:
 
 class StrategyLoader:
     def __init__(self, roots: list[Path] | None = None):
-        self.roots = roots or [Path("strategies/builtin"), Path("strategies/gawain")]
+        self.roots = roots or [Path("/srv/strategies/builtin"), Path("/srv/strategies/gawain")]
         self._definitions: dict[str, StrategyDefinition] = {}
 
     def discover(self) -> dict[str, StrategyDefinition]:
@@ -54,7 +54,7 @@ class StrategyLoader:
         if not self._definitions:
             self.discover()
         if strategy_id not in self._definitions:
-            raise ValueError("Unknown strategy_name")
+            raise ValueError("Unknown strategy_id")
         return self._definitions[strategy_id]
 
     def _load_module(self, py_file: Path) -> StrategyDefinition:
