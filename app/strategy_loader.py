@@ -21,8 +21,16 @@ class StrategyDefinition:
 
 class StrategyLoader:
     def __init__(self, roots: list[Path] | None = None):
-        self.roots = roots or [Path("strategies/builtin"), Path("strategies/gawain")]
+        self.roots = roots or self._default_roots()
         self._definitions: dict[str, StrategyDefinition] = {}
+
+    def _default_roots(self) -> list[Path]:
+        container_root = Path("/srv/strategies")
+        if container_root.exists():
+            return [container_root / "builtin", container_root / "gawain"]
+
+        project_root = Path(__file__).resolve().parent.parent
+        return [project_root / "strategies" / "builtin", project_root / "strategies" / "gawain"]
 
     def discover(self) -> dict[str, StrategyDefinition]:
         discovered: dict[str, StrategyDefinition] = {}
