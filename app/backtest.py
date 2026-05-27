@@ -187,11 +187,11 @@ def _validate_params(meta: dict[str, object], strategy_params: dict[str, object]
     return merged
 
 
-def build_strategy(strategy_name: str, strategy_params: dict[str, object]) -> Strategy:
+def build_strategy(strategy_id: str, strategy_params: dict[str, object]) -> Strategy:
     from app.strategy_loader import strategy_loader
-    definition = strategy_loader.get(strategy_name)
+    definition = strategy_loader.get(strategy_id)
     params = _validate_params(definition.meta, strategy_params)
-    return DynamicSignalStrategy(strategy_name, definition.module, params)
+    return DynamicSignalStrategy(strategy_id, definition.module, params)
 
 
 def get_strategy_registry_metadata() -> dict[str, dict[str, object]]:

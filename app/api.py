@@ -98,7 +98,7 @@ class BacktestEquityPoint(BaseModel):
 
 
 class BacktestRunRequest(BaseModel):
-    strategy_name: str
+    strategy_id: str
     strategy_params: dict[str, Any] = {}
     symbol: str
     interval: str = "1m"
@@ -463,15 +463,15 @@ def get_backtest_equity_curve(run_id: UUID):
 @app.post("/backtests/run")
 def run_backtest(request: BacktestRunRequest):
     discovered = get_strategy_registry_metadata()
-    if request.strategy_name not in discovered:
-        raise HTTPException(status_code=400, detail="Unknown strategy_name")
-    if bool(discovered[request.strategy_name].get("metadata_only")):
+    if request.strategy_id not in discovered:
+        raise HTTPException(status_code=400, detail="Unknown strategy_id")
+    if bool(discovered[request.strategy_id].get("metadata_only")):
         raise HTTPException(status_code=400, detail="Strategy is metadata_only and cannot be executed")
     if request.interval != "1m":
         raise HTTPException(status_code=400, detail="Only interval=1m is supported")
 
     config = {
-        "strategy_name": request.strategy_name,
+        "strategy_id": request.strategy_id,
         "strategy_params": request.strategy_params,
         "symbol": request.symbol,
         "interval": request.interval,
@@ -489,7 +489,7 @@ def run_backtest(request: BacktestRunRequest):
     )
     dataset_fingerprint = build_dataset_fingerprint(candles)
     try:
-        strategy = build_strategy(request.strategy_name, request.strategy_params)
+        strategy = build_strategy(request.strategy_id, request.strategy_params)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     engine = SimulatedExecutionModel(initial_cash=10_000.0)
