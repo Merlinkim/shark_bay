@@ -246,5 +246,57 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(r.json()['status'], 'success')
         self.assertEqual(r.json()['result']['summary_metrics']['total_return'], 1.23)
 
+
+    @patch('app.api._get_research_review_repo')
+    def test_create_research_review(self, repo_factory):
+        repo_factory.return_value.create.return_value = {
+            'id': 'r1', 'strategy_id': 'bb_rsi_reversion', 'experiment_run_id': 'exp-run-1', 'run_id': 'run-1',
+            'job_id': 'job-1', 'verdict': 'candidate', 'risk_level': 'medium', 'overfit_risk': 'low',
+            'summary': 'looks promising', 'failure_reasons_json': [], 'required_changes_json': [],
+            'recommendation_to_arthur': 'monitor', 'created_by_agent': 'lancelot', 'created_at': '2026-01-01T00:00:00+00:00'
+        }
+        r = self.client.post('/research/reviews', json={
+            'strategy_id': 'bb_rsi_reversion',
+            'experiment_run_id': 'exp-run-1',
+            'run_id': 'run-1',
+            'job_id': 'job-1',
+            'verdict': 'candidate',
+            'risk_level': 'medium',
+            'overfit_risk': 'low',
+            'summary': 'looks promising',
+            'failure_reasons': [],
+            'required_changes': [],
+            'recommendation_to_arthur': 'monitor',
+            'created_by_agent': 'lancelot',
+        })
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['id'], 'r1')
+
+    @patch('app.api._get_research_review_repo')
+    def test_list_research_reviews(self, repo_factory):
+        repo_factory.return_value.list.return_value = [{
+            'id': 'r1', 'strategy_id': 'bb_rsi_reversion', 'experiment_run_id': 'exp-run-1', 'run_id': 'run-1',
+            'job_id': 'job-1', 'verdict': 'candidate', 'risk_level': 'medium', 'overfit_risk': 'low',
+            'summary': 'ok', 'failure_reasons_json': [], 'required_changes_json': [],
+            'recommendation_to_arthur': '', 'created_by_agent': 'lancelot', 'created_at': '2026-01-01T00:00:00+00:00'
+        }]
+        r = self.client.get('/research/reviews', params={'strategy_id': 'bb_rsi_reversion'})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(r.json()), 1)
+
+    def test_create_research_review_invalid_verdict(self):
+        r = self.client.post('/research/reviews', json={
+            'strategy_id': 'bb_rsi_reversion',
+            'experiment_run_id': 'exp-run-1',
+            'run_id': 'run-1',
+            'job_id': 'job-1',
+            'verdict': 'ship_it',
+            'risk_level': 'medium',
+            'overfit_risk': 'low',
+            'summary': 'bad',
+            'created_by_agent': 'lancelot',
+        })
+        self.assertEqual(r.status_code, 422)
+
 if __name__ == '__main__':
     unittest.main()
