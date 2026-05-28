@@ -448,6 +448,17 @@ make up
 
 > Only remove volumes if you intentionally want to delete persisted DB and Grafana state.
 
+
+## Database Migrations (Backtest Queue)
+
+Apply idempotent schema migrations (including `backtest_jobs` and `job_events`) manually:
+
+```bash
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/market_data python -m app.db_migrate
+```
+
+Docker Compose runs this automatically via the one-shot `db-migrate` service before `api` and `backtest-worker` start.
+
 ## Reproducible Backtests
 
 Run the backtest CLI with a fixed dataset window to freeze the candle set used in replay:

@@ -33,6 +33,34 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+
+
+  db-migrate:
+    build:
+      context: ./app
+    command: python -m app.db_migrate
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@db:5432/market_data}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  backtest-worker:
+    build:
+      context: ./app
+    command: python -m app.backtest_worker
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@db:5432/market_data}
+      BACKTEST_JOB_POLL_SECONDS: ${BACKTEST_JOB_POLL_SECONDS:-1}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      db:
+        condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   api:
     build:
       context: ./app
@@ -43,6 +71,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
     ports:
       - "${API_PORT:-8000}:8000"
     restart: unless-stopped

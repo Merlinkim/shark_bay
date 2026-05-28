@@ -187,5 +187,48 @@ class TestAPI(unittest.TestCase):
         self.assertIn('symbol_metrics', payload)
         self.assertIn('BTCUSDT', payload['symbol_metrics'])
 
+
+
+    @patch('app.api.get_strategy_registry_metadata')
+    @patch('app.api._get_backtest_job_repo')
+    def test_create_backtest_job(self, repo_factory, metadata_mock):
+        metadata_mock.return_value = {'sma_crossover': {'version': 'v1'}}
+        repo_factory.return_value.create_job.return_value = '11111111-1111-1111-1111-111111111111'
+        r = self.client.post('/research/jobs/backtest', json={
+            'strategy_id': 'sma_crossover',
+            'params': {'short_window': 5, 'long_window': 20},
+            'risk_config': {'max_drawdown': 0.2},
+            'execution_config': {'initial_cash': 10000},
+            'candle_query': {'symbol': 'BTCUSDT', 'interval': '1m'}
+        })
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['status'], 'queued')
+
+    @patch('app.api._get_backtest_job_repo')
+    def test_get_backtest_job_status(self, repo_factory):
+        repo_factory.return_value.get_job.return_value = {
+            'id': '11111111-1111-1111-1111-111111111111',
+            'status': 'running',
+            'created_at': '2026-01-01T00:00:00Z',
+            'started_at': '2026-01-01T00:01:00Z',
+            'finished_at': None,
+            'cancel_requested': False,
+            'error_message': None,
+        }
+        r = self.client.get('/research/jobs/11111111-1111-1111-1111-111111111111')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['status'], 'running')
+
+    @patch('app.api._get_backtest_job_repo')
+    def test_cancel_backtest_job(self, repo_factory):
+        repo = repo_factory.return_value
+        repo.get_job.side_effect = [
+            {'id': '11111111-1111-1111-1111-111111111111', 'status': 'running'},
+            {'id': '11111111-1111-1111-1111-111111111111', 'status': 'running', 'cancel_requested': True},
+        ]
+        r = self.client.post('/research/jobs/11111111-1111-1111-1111-111111111111/cancel')
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.json()['cancel_requested'])
+
 if __name__ == '__main__':
     unittest.main()
