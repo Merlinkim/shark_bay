@@ -83,7 +83,6 @@ class BacktestJobRepository:
                     UPDATE backtest_jobs
                     SET cancel_requested = TRUE,
                         status = CASE WHEN status = 'queued' THEN 'cancelled' ELSE status END,
-                        started_at = CASE WHEN status = 'queued' THEN started_at ELSE started_at END,
                         finished_at = CASE WHEN status = 'queued' THEN NOW() ELSE finished_at END,
                         updated_at = NOW()
                     WHERE id = %s AND status IN ('queued', 'running')
@@ -218,6 +217,8 @@ def execute_job(db_url: str, job_row: dict[str, Any]) -> tuple[dict[str, Any], s
     end_time = datetime.fromisoformat(payload["candle_query"]["end_time"]) if payload["candle_query"].get("end_time") else None
 
     candles = CandleRepository(db_url).get_candles(symbol=symbol, interval=interval, start_time=start_time, end_time=end_time)
+    if not candles:
+        raise ValueError(f"No candles found for {symbol} {interval} in requested range")
     dataset_fingerprint = build_dataset_fingerprint(candles)
     strategy = build_strategy(strategy_id, payload.get("params", {}))
     config_hash = build_config_hash(payload)

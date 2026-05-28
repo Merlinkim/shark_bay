@@ -230,5 +230,21 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.json()['cancel_requested'])
 
+    @patch('app.api._get_backtest_job_repo')
+    def test_get_backtest_job_result(self, repo_factory):
+        repo = repo_factory.return_value
+        repo.get_job.return_value = {
+            'id': '11111111-1111-1111-1111-111111111111',
+            'status': 'success',
+        }
+        repo.get_job_result.return_value = {
+            'result': {'summary_metrics': {'total_return': 1.23}},
+            'result_reference': 'backtest_results/BTCUSDT/1m/result-123',
+        }
+        r = self.client.get('/research/jobs/11111111-1111-1111-1111-111111111111/result')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['status'], 'success')
+        self.assertEqual(r.json()['result']['summary_metrics']['total_return'], 1.23)
+
 if __name__ == '__main__':
     unittest.main()
