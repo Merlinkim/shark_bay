@@ -18,7 +18,8 @@ services:
 
   ingestor:
     build:
-      context: ./app
+      context: .
+      dockerfile: app/Dockerfile
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@db:5432/market_data}
       SYMBOLS: ${SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,DOGEUSDT,ADAUSDT,LINKUSDT,AVAXUSDT,SUIUSDT}
@@ -36,7 +37,8 @@ services:
 
   backtest-worker:
     build:
-      context: ./app
+      context: .
+      dockerfile: app/Dockerfile
     command: python -m app.backtest_worker
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@db:5432/market_data}
@@ -45,11 +47,29 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
+    volumes:
+      - ./strategies:/srv/strategies:ro
+
+  migrate:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    command: python -m app.migrate
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@db:5432/market_data}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
 
   api:
     build:
-      context: ./app
+      context: .
+      dockerfile: app/Dockerfile
     command: uvicorn app.api:app --host 0.0.0.0 --port 8000
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@db:5432/market_data}
@@ -57,9 +77,13 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     ports:
       - "${API_PORT:-8000}:8000"
     restart: unless-stopped
+    volumes:
+      - ./strategies:/srv/strategies:ro
 
   research-ui:
     build:

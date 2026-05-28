@@ -1,7 +1,28 @@
 import os
 import time
 
+import psycopg
+
 from app.backtest_jobs import BacktestJobRepository, execute_job
+
+
+def wait_for_queue_tables(db_url: str, poll_seconds: float) -> None:
+    while True:
+        try:
+            with psycopg.connect(db_url) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT to_regclass('public.backtest_jobs') IS NOT NULL
+                           AND to_regclass('public.job_events') IS NOT NULL
+                        """
+                    )
+                    row = cur.fetchone()
+                    if row and row[0]:
+                        return
+        except Exception:
+            pass
+        time.sleep(poll_seconds)
 
 
 def run_worker() -> None:
@@ -9,6 +30,7 @@ def run_worker() -> None:
     if not db_url:
         raise RuntimeError("DATABASE_URL is not set")
     poll_seconds = float(os.environ.get("BACKTEST_JOB_POLL_SECONDS", "1.0"))
+    wait_for_queue_tables(db_url, poll_seconds)
     repo = BacktestJobRepository(db_url)
 
     while True:

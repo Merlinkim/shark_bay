@@ -218,6 +218,18 @@ make up
 
 - Runs: `docker compose up --build -d`
 
+### Database migrations (idempotent, safe for existing volumes)
+
+Shark Bay now includes an idempotent migration runner (`python -m app.migrate`) that applies SQL files from `app/migrations/` and records applied files in `schema_migrations`.
+
+Apply migrations without deleting your PostgreSQL volume:
+
+```bash
+docker compose run --rm migrate
+```
+
+This is safe to run repeatedly; already-applied migrations are skipped.
+
 ```bash
 make down
 ```
