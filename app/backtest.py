@@ -375,9 +375,17 @@ class SimulatedExecutionModel:
         self,
         execution_config: ExecutionConfig | None = None,
         risk_config: RiskConfig | None = None,
+        initial_cash: float | None = None,
     ):
         self.execution_config = execution_config or ExecutionConfig()
         self.risk_config = risk_config or RiskConfig()
+        if initial_cash is not None:
+            self.execution_config = ExecutionConfig(
+                fee_bps=self.execution_config.fee_bps,
+                slippage_bps=self.execution_config.slippage_bps,
+                slippage_model=self.execution_config.slippage_model,
+                initial_cash=initial_cash,
+            )
         self.initial_cash = self.execution_config.initial_cash
         self.fee_rate = self.execution_config.fee_bps / 10_000.0
         self.slippage_rate = self.execution_config.slippage_bps / 10_000.0
@@ -428,7 +436,7 @@ class SimulatedExecutionModel:
         position = 0
         position_size = 0.0
         entry_price: float | None = None
-        entry_index: int | None = None
+        entry_time: datetime | None = None
         trades = 0
         wins = 0
         total_fees = 0.0
@@ -448,7 +456,7 @@ class SimulatedExecutionModel:
                 day_start_equity = equity
 
             if position != 0 and entry_price is not None:
-                holding_minutes = (candle_list[i].open_time - candle_list[entry_index]).total_seconds() / 60.0 if entry_index is not None else 0.0
+                holding_minutes = (candle_list[i].open_time - entry_time).total_seconds() / 60.0 if entry_time is not None else 0.0
                 stop_hit = position == 1 and curr_close <= entry_price * (1.0 - self.risk_config.stop_loss_pct)
                 stop_hit = stop_hit or (position == -1 and curr_close >= entry_price * (1.0 + self.risk_config.stop_loss_pct))
                 take_hit = position == 1 and curr_close >= entry_price * (1.0 + self.risk_config.take_profit_pct)
@@ -465,7 +473,7 @@ class SimulatedExecutionModel:
                     position = 0
                     position_size = 0.0
                     entry_price = None
-                    entry_index = None
+                    entry_time = None
 
             target_position = int(strategy.on_candle(candle_list[i - 1]))
             if target_position not in {-1, 0, 1}:
@@ -485,6 +493,11 @@ class SimulatedExecutionModel:
                         target_size = min(max(self.risk_config.risk_per_trade, 0.0), self.risk_config.max_position_size)
                     elif self.risk_config.position_size_mode == "fixed":
                         target_size = min(max(self.risk_config.max_position_size, 0.0), 1.0)
+                    elif self.risk_config.position_size_mode == "fixed_fraction":
+                        target_size = min(
+                            max(self.risk_config.risk_per_trade, 0.0),
+                            self.risk_config.max_position_size,
+                        )
                     else:
                         raise ValueError(f"Unsupported position_size_mode: {self.risk_config.position_size_mode}")
                 fee = equity * abs(target_size - position_size) * self.fee_rate
@@ -495,7 +508,7 @@ class SimulatedExecutionModel:
                 position = target_position
                 position_size = target_size
                 entry_price = exec_price if position != 0 else None
-                entry_index = i if position != 0 else None
+                entry_time = candle_list[i].open_time if position != 0 else None
 
             ret = (curr_close - prev_close) / prev_close
             pnl = equity * position * position_size * ret
