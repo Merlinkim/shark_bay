@@ -1,112 +1,103 @@
-# Shark Bay Research API Reference
+# Shark Bay Research API Reference (Updated)
+
+This reference is aligned with `app/api.py` as of 2026-05-28.
 
 ## Conventions
-- Base: FastAPI service (default `:8000`).
-- Timestamps: ISO-8601 UTC (`...Z` or `+00:00`), datetime query params must include timezone where required.
-- Errors: `{"detail": "..."}` with HTTP status (`400`, `404`, `500`, `503`).
-- Pagination: `limit` appears on list endpoints; no cursor pagination yet.
-- Sorting: usually fixed server-side (`open_time DESC` for candles, `created_at DESC` for experiment lists).
-- Filtering: query params (`symbol`, `interval`, `status`, date ranges, split settings).
 
-## Ingestion
-### GET `/ingestion/status`
-- Purpose: latest ingestion heartbeat and candle counts.
-- Response: latest/last candle time, total count, collector status, backfill status fields, heartbeat payload.
-- Determinism: snapshot at query time from DB state.
-- Intended agents: Arthur (ops), Merlin (diagnostics).
+- Base service: FastAPI (default `http://localhost:8000`).
+- Time format: ISO-8601 with timezone.
+- Errors: `{"detail": "..."}` with `400`, `404`, `500`, `503`.
+- Determinism: reproducible when symbol/range/params and underlying dataset are fixed.
 
-### GET `/ingestion/telemetry`
-- Purpose: per-symbol lag/reconnect/upsert visibility.
-- Params: none (uses configured symbols).
-- Response: `{symbols, symbol_metrics}`.
-- Determinism: consistent for same DB snapshot.
-- Intended agents: Arthur, Lancelot.
+## Health and Ops
 
-### POST `/research/backfill/rest`
-- Purpose: controlled historical REST backfill.
-- Body: `symbol, interval=1m, start, end, dry_run, sleep_seconds, limit, skip_existing`.
-- Response: backfill summary with requested/fetched/upserted counts + errors.
-- Determinism: deterministic for fixed source data and window; external exchange history may evolve in near-real-time for unfinished candles.
-- Intended agents: Arthur (data hygiene), Galahad (dataset prep).
+- `GET /health`
+- `GET /health/live`
+- `GET /health/ready`
+- `GET /ops/health`
+- `GET /ops/infrastructure`
+- `GET /metrics`
 
-## Candles
-### GET `/candles`
-- Params: `symbol` (required), `interval=1m`, `limit<=20000`.
-- Response: `{symbol, interval, limit, count, candles[]}`.
-- Determinism: fixed ordering (`open_time DESC`) and DB snapshot semantics.
-- Workflow: data sanity pull, feature pre-check.
+Use this group as preflight before any research workflow.
 
-### GET `/symbols/active`
-- Purpose: discover active symbols in DB.
-- Response: `{symbols, count}`.
+## Market Data and Ingestion
 
-## Backtesting
-### GET `/backtests`
-- Params: `limit<=500`.
-- Response: list of run summaries.
+- `GET /symbols/active`
+- `GET /candles?symbol=...&interval=1m&limit=...`
+- `GET /ingestion/status`
+- `GET /ingestion/telemetry`
+- `POST /research/backfill/rest`
 
-### GET `/backtests/{run_id}`
-### GET `/backtests/{run_id}/fills`
-### GET `/backtests/{run_id}/equity-curve`
-- Purpose: inspect persisted run details + artifacts.
-- Determinism: immutable run data once persisted.
+`/research/backfill/rest` is for bounded historical gap recovery. Prefer explicit `start/end`, keep window narrow, and use `dry_run` first when uncertain.
 
-### POST `/backtests/run`
-- Body: `strategy_name, strategy_params, symbol, interval=1m, start_time?, end_time?, save_results`.
-- Response: `run_id`, hashes, summary metrics.
-- Determinism: deterministic for identical candle dataset and strategy params.
-- Intended agents: Merlin, Galahad.
+## Strategy Metadata
 
-## Walk-Forward
-### GET `/research/walk-forward/run`
-- Params: strategy, symbol, interval, start/end, train/validation/test days, step_days, include_holdout, persist.
-- Response: window metrics + aggregate stability/degradation/pass-fail.
-- Determinism: deterministic window generation and segment replay over fixed dataset.
-- Intended agents: Galahad, Merlin.
+- `GET /strategies`
+- `GET /strategies/registry`
 
-## Experiments
-### GET `/research/experiments/run`
-- Params include `strategy, symbol, interval, lookback_hours, start/end, persist, split_mode, include_holdout`.
-- Response: experiment payload (with optional holdout metrics).
+Use this to validate strategy availability and registry contract before runs.
 
-### GET `/research/experiments/latest`
-- Params: `symbol, interval, limit<=200`.
-- Response: `{experiments: [...]}` sorted newest first.
+## Backtests (Direct)
 
-### GET `/research/experiments/{experiment_id}`
-### GET `/research/experiments/{experiment_id}/equity-curve`
-### GET `/research/experiments/{experiment_id}/fills`
-- Purpose: retrieve full experiment and artifact slices.
+- `GET /backtests`
+- `GET /backtests/{run_id}`
+- `GET /backtests/{run_id}/fills`
+- `GET /backtests/{run_id}/equity-curve`
+- `POST /backtests/run`
 
-## Analytics
-### GET `/research/features`
-- Params: `symbol, interval=1m, lookback_hours`.
-- Response: feature snapshot with regime + notes.
+`POST /backtests/run` supports deterministic replay and persists artifacts when `save_results=true`.
 
-### GET `/research/analytics`
-- Params: `symbol, interval=1m, limit<=500`.
-- Response: aggregate analytics over recent experiments.
+## Backtest Job Queue (Async)
 
-### GET `/research/dataset/splits`
-- Params: symbol, interval, split_mode (`ratio|rolling`), include_holdout, start/end, and window day params.
-- Response: deterministic split/window payload.
+- `POST /research/jobs/backtest`
+- `GET /research/jobs/{job_id}`
+- `GET /research/jobs/{job_id}/result`
+- `POST /research/jobs/{job_id}/cancel`
 
-## Research-Agent
-### GET `/research/agent/recommendations`
-- Params: symbol, interval, optional strategy/start/end.
-- Purpose: recommendation bundle for research agent workflows.
-- Intended agents: Merlin primarily.
+Use async jobs for heavier runs or when orchestration needs polling/cancellation semantics.
 
-## Strategy-Registry
-### GET `/strategies`
-- Purpose: runtime strategy metadata view.
+## Research and Analytics
 
-### GET `/strategies/registry`
-- Params: optional `status`, `symbol`, `interval`.
-- Purpose: registry-contract filtering for research planning.
+- `GET /research/features`
+- `GET /research/experiments/run`
+- `GET /research/experiments/latest`
+- `GET /research/experiments/{experiment_id}`
+- `GET /research/experiments/{experiment_id}/equity-curve`
+- `GET /research/experiments/{experiment_id}/fills`
+- `GET /research/analytics`
+- `GET /research/dataset/splits`
+- `GET /research/walk-forward/run`
+- `GET /research/agent/recommendations`
 
-## Telemetry / Health
-### GET `/health`, `/health/live`, `/health/ready`
-### GET `/ops/health`, `/ops/infrastructure`
-### GET `/metrics`
-- Support debugging/observability and readiness automation.
+Recommended sequence:
+1. `/research/dataset/splits`
+2. `/research/experiments/run`
+3. `/research/analytics`
+4. `/research/agent/recommendations`
+5. `/research/walk-forward/run` for robustness checks
+
+## Review and Strategy Lifecycle
+
+- `POST /research/reviews`
+- `GET /research/reviews`
+- `GET /research/reviews/{review_id}`
+- `POST /research/strategies/proposals`
+- `GET /research/strategies/{strategy_id}`
+- `PATCH /research/strategies/{strategy_id}/status`
+- `GET /research/strategies/{strategy_id}/history`
+
+Use this group to formalize decisions and keep an auditable research trail.
+
+## Minimal Agent Runbook
+
+1. Readiness: `/health/ready`, `/ingestion/status`.
+2. Data verify: `/symbols/active`, `/candles`.
+3. Research run: `/research/dataset/splits`, `/research/experiments/run`.
+4. Decision support: `/research/analytics`, `/research/agent/recommendations`.
+5. Governance: `/research/reviews`, strategy lifecycle endpoints.
+
+## Related docs
+
+- `docs/project_structure_graph.md`
+- `docs/GUIDE_AGENTS.md`
+- `docs/codebase_whitepaper.md`

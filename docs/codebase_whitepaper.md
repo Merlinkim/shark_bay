@@ -149,3 +149,15 @@ flowchart TD
 - No trading/execution side effects.
 - Deterministic, reproducible research outputs constrained by dataset and config hash.
 - Explicit validation guards for intervals, symbols, ranges, and strategy constraints.
+
+## 24) Documentation Entry Points
+- Project structure graph: `docs/project_structure_graph.md`
+- Agent workflow runbook: `docs/GUIDE_AGENTS.md`
+- API reference: `docs/research_api_reference.md`
+- Debugging workflows: `docs/agent_debugging.md`
+
+Recommended onboarding order:
+1. `README.md`
+2. `docs/project_structure_graph.md`
+3. `docs/research_api_reference.md`
+4. `docs/GUIDE_AGENTS.md`
