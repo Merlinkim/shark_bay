@@ -18,6 +18,8 @@ from app.backtest import (
     SimulatedExecutionModel,
     build_config_hash,
     build_dataset_fingerprint,
+    build_execution_config,
+    build_risk_config,
     build_strategy,
     get_strategy_registry_metadata,
     persist_backtest_outputs,
@@ -226,7 +228,10 @@ def execute_job(db_url: str, job_row: dict[str, Any]) -> tuple[dict[str, Any], s
     run_repo = BacktestRunRepository(db_url)
     run_id = run_repo.create_run(symbol=symbol, interval=interval, config_hash=config_hash, dataset_fingerprint=dataset_fingerprint.fingerprint, start_time=start_time, end_time=end_time)
 
-    engine = SimulatedExecutionModel(initial_cash=payload.get("execution_config", {}).get("initial_cash", 10000.0))
+    engine = SimulatedExecutionModel(
+        execution_config=build_execution_config(payload.get("execution_config", {})),
+        risk_config=build_risk_config(payload.get("risk_config", {})),
+    )
     result = engine.run(candles, strategy, config_hash=config_hash, dataset_fingerprint=dataset_fingerprint)
     run_repo.persist_completed(run_id, result)
 

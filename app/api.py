@@ -31,6 +31,8 @@ from app.backtest import (
     SimulatedExecutionModel,
     build_config_hash,
     build_dataset_fingerprint,
+    build_execution_config,
+    build_risk_config,
     build_strategy,
 )
 
@@ -118,6 +120,8 @@ class BacktestRunRequest(BaseModel):
     start_time: datetime | None = None
     end_time: datetime | None = None
     save_results: bool = True
+    risk_config: dict[str, Any] = {}
+    execution_config: dict[str, Any] = {}
 
 
 @app.middleware("http")
@@ -494,7 +498,8 @@ def run_backtest(request: BacktestRunRequest):
         "interval": request.interval,
         "start_time": request.start_time.isoformat() if request.start_time else None,
         "end_time": request.end_time.isoformat() if request.end_time else None,
-        "initial_cash": 10_000.0,
+        "risk_config": request.risk_config,
+        "execution_config": request.execution_config,
     }
     config_hash = build_config_hash(config)
     db_url = get_db_url()
@@ -509,7 +514,10 @@ def run_backtest(request: BacktestRunRequest):
         strategy = build_strategy(request.strategy_name, request.strategy_params)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    engine = SimulatedExecutionModel(initial_cash=10_000.0)
+    engine = SimulatedExecutionModel(
+        execution_config=build_execution_config(request.execution_config),
+        risk_config=build_risk_config(request.risk_config),
+    )
     repo = BacktestRunRepository(db_url)
     run_id = repo.create_run(
         symbol=request.symbol,

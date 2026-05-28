@@ -324,18 +324,74 @@ class DatasetFingerprint:
     max_open_time: datetime | None
 
 
+@dataclass(frozen=True)
+class RiskConfig:
+    position_size_mode: str = "notional_fraction"
+    risk_per_trade: float = 0.01
+    max_position_size: float = 1.0
+    stop_loss_pct: float = 0.02
+    take_profit_pct: float = 0.04
+    max_holding_minutes: int = 240
+    max_daily_loss_pct: float = 5.0
+    max_drawdown_pct: float = 20.0
+
+
+@dataclass(frozen=True)
+class ExecutionConfig:
+    fee_bps: float = 6.0
+    slippage_bps: float = 1.0
+    slippage_model: str = "fixed_bps"
+    initial_cash: float = 10_000.0
+
+
+def build_risk_config(raw: dict[str, object] | None) -> RiskConfig:
+    raw = raw or {}
+    return RiskConfig(
+        position_size_mode=str(raw.get("position_size_mode", "notional_fraction")),
+        risk_per_trade=float(raw.get("risk_per_trade", 0.01)),
+        max_position_size=float(raw.get("max_position_size", 1.0)),
+        stop_loss_pct=float(raw.get("stop_loss_pct", 0.02)),
+        take_profit_pct=float(raw.get("take_profit_pct", 0.04)),
+        max_holding_minutes=int(raw.get("max_holding_minutes", 240)),
+        max_daily_loss_pct=float(raw.get("max_daily_loss_pct", 5.0)),
+        max_drawdown_pct=float(raw.get("max_drawdown_pct", 20.0)),
+    )
+
+
+def build_execution_config(raw: dict[str, object] | None) -> ExecutionConfig:
+    raw = raw or {}
+    return ExecutionConfig(
+        fee_bps=float(raw.get("fee_bps", 6.0)),
+        slippage_bps=float(raw.get("slippage_bps", 1.0)),
+        slippage_model=str(raw.get("slippage_model", "fixed_bps")),
+        initial_cash=float(raw.get("initial_cash", 10_000.0)),
+    )
+
+
 class SimulatedExecutionModel:
-    """Deterministic executor with slippage and fee support."""
+    """Deterministic executor with centralized risk, execution, and position controls."""
 
     def __init__(
         self,
-        initial_cash: float = 10_000.0,
-        fee_rate: float = 0.0006,  # Default 0.06% (e.g. Binance spot taker)
-        slippage_rate: float = 0.0001,  # Default 0.01%
+        execution_config: ExecutionConfig | None = None,
+        risk_config: RiskConfig | None = None,
     ):
-        self.initial_cash = initial_cash
-        self.fee_rate = fee_rate
-        self.slippage_rate = slippage_rate
+        self.execution_config = execution_config or ExecutionConfig()
+        self.risk_config = risk_config or RiskConfig()
+        self.initial_cash = self.execution_config.initial_cash
+        self.fee_rate = self.execution_config.fee_bps / 10_000.0
+        self.slippage_rate = self.execution_config.slippage_bps / 10_000.0
+
+    def _slippage_multiplier(self, direction: int) -> float:
+        base = self.slippage_rate
+        model = self.execution_config.slippage_model
+        if model == "none":
+            return 1.0
+        if model == "adaptive":
+            base *= 1.5
+        if model not in {"fixed_bps", "adaptive", "none"}:
+            raise ValueError(f"Unsupported slippage_model: {model}")
+        return 1.0 + (direction * base)
 
     def run(
         self,
@@ -370,6 +426,9 @@ class SimulatedExecutionModel:
 
         equity = self.initial_cash
         position = 0
+        position_size = 0.0
+        entry_price: float | None = None
+        entry_index: int | None = None
         trades = 0
         wins = 0
         total_fees = 0.0
@@ -379,41 +438,67 @@ class SimulatedExecutionModel:
         equity_curve = [EquityPoint(open_time=candle_list[0].open_time, equity=equity)]
         fills: list[Fill] = []
 
+        day_start_equity = equity
+        running_peak = equity
         for i in range(1, len(candle_list)):
             prev_close = float(candle_list[i - 1].close)
             curr_close = float(candle_list[i].close)
 
-            target_position = strategy.on_candle(candle_list[i - 1])
+            if candle_list[i].open_time.date() != candle_list[i - 1].open_time.date():
+                day_start_equity = equity
+
+            if position != 0 and entry_price is not None:
+                holding_minutes = (candle_list[i].open_time - candle_list[entry_index]).total_seconds() / 60.0 if entry_index is not None else 0.0
+                stop_hit = position == 1 and curr_close <= entry_price * (1.0 - self.risk_config.stop_loss_pct)
+                stop_hit = stop_hit or (position == -1 and curr_close >= entry_price * (1.0 + self.risk_config.stop_loss_pct))
+                take_hit = position == 1 and curr_close >= entry_price * (1.0 + self.risk_config.take_profit_pct)
+                take_hit = take_hit or (position == -1 and curr_close <= entry_price * (1.0 - self.risk_config.take_profit_pct))
+                timed_exit = holding_minutes >= self.risk_config.max_holding_minutes
+                if stop_hit or take_hit or timed_exit:
+                    direction = -1 if position == 1 else 1
+                    exec_price = curr_close * self._slippage_multiplier(direction)
+                    fee = equity * position_size * self.fee_rate
+                    equity -= fee
+                    total_fees += fee
+                    fills.append(Fill(open_time=candle_list[i].open_time, prev_position=position, new_position=0, exec_price=exec_price))
+                    trades += 1
+                    position = 0
+                    position_size = 0.0
+                    entry_price = None
+                    entry_index = None
+
+            target_position = int(strategy.on_candle(candle_list[i - 1]))
+            if target_position not in {-1, 0, 1}:
+                raise ValueError(f"Invalid strategy signal: {target_position}")
+
+            daily_loss_pct = ((day_start_equity - equity) / day_start_equity) * 100.0 if day_start_equity > 0 else 0.0
+            drawdown_pct = ((running_peak - equity) / running_peak) * 100.0 if running_peak > 0 else 0.0
+            if daily_loss_pct >= self.risk_config.max_daily_loss_pct or drawdown_pct >= self.risk_config.max_drawdown_pct:
+                target_position = 0
+
             if target_position != position:
-                # Execution with slippage
-                # If buying (position increasing), price is higher. If selling, price is lower.
                 direction = 1 if target_position > position else -1
-                exec_price = curr_close * (1.0 + (direction * self.slippage_rate))
-                
-                # Fees are calculated on the notion value of the trade
-                trade_value = abs(target_position - position) * exec_price
-                # In this simple model, 1 unit is 'all in' or 'all out' based on current equity
-                # To keep it simple and consistent with the previous model, we assume the trade 
-                # size is based on the current equity value at the exec price.
-                fee = equity * abs(target_position - position) * self.fee_rate
+                exec_price = curr_close * self._slippage_multiplier(direction)
+                target_size = 0.0
+                if target_position != 0:
+                    if self.risk_config.position_size_mode == "notional_fraction":
+                        target_size = min(max(self.risk_config.risk_per_trade, 0.0), self.risk_config.max_position_size)
+                    elif self.risk_config.position_size_mode == "fixed":
+                        target_size = min(max(self.risk_config.max_position_size, 0.0), 1.0)
+                    else:
+                        raise ValueError(f"Unsupported position_size_mode: {self.risk_config.position_size_mode}")
+                fee = equity * abs(target_size - position_size) * self.fee_rate
                 equity -= fee
                 total_fees += fee
-
                 trades += 1
-                fills.append(
-                    Fill(
-                        open_time=candle_list[i].open_time,
-                        prev_position=position,
-                        new_position=target_position,
-                        exec_price=exec_price,
-                    )
-                )
+                fills.append(Fill(open_time=candle_list[i].open_time, prev_position=position, new_position=target_position, exec_price=exec_price))
                 position = target_position
+                position_size = target_size
+                entry_price = exec_price if position != 0 else None
+                entry_index = i if position != 0 else None
 
-            # PnL calculation remains close-to-close for simplicity, 
-            # but we use the adjusted equity from fees.
             ret = (curr_close - prev_close) / prev_close
-            pnl = equity * position * ret
+            pnl = equity * position * position_size * ret
             
             if pnl > 0:
                 wins += 1
@@ -426,8 +511,8 @@ class SimulatedExecutionModel:
 
             equity += pnl
             equity_curve.append(EquityPoint(open_time=candle_list[i].open_time, equity=equity))
+            running_peak = max(running_peak, equity)
 
-        running_peak = self.initial_cash
         max_drawdown_pct = 0.0
         for point in equity_curve:
             running_peak = max(running_peak, point.equity)
@@ -709,7 +794,15 @@ def run_local_backtest(
         strategy_name="sma_crossover",
         strategy_params={"short_window": short_window, "long_window": long_window},
     )
-    engine = SimulatedExecutionModel(initial_cash=10_000.0, fee_rate=fee_rate, slippage_rate=slippage_rate)
+    engine = SimulatedExecutionModel(
+        execution_config=ExecutionConfig(
+            fee_bps=fee_rate * 10_000.0,
+            slippage_bps=slippage_rate * 10_000.0,
+            slippage_model="fixed_bps",
+            initial_cash=10_000.0,
+        ),
+        risk_config=RiskConfig(),
+    )
     run_repo = BacktestRunRepository(db_url)
     run_id = run_repo.create_run(
         symbol=symbol,
