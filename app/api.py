@@ -25,6 +25,7 @@ from app.walk_forward import run_walk_forward_backtest
 from app.research_agent import run_agent as run_research_agent
 from app.backtest_jobs import BacktestJobRepository, build_reproducibility_metadata
 from app.reviews import ResearchReviewRepository
+from app.strategy_lifecycle import StrategyLifecycleRepository
 from app.backtest import (
     BacktestRunRepository,
     CandleRepository,
@@ -143,6 +144,38 @@ class ResearchReviewResponse(BaseModel):
     required_changes_json: list[str]
     recommendation_to_arthur: str
     created_by_agent: str
+    created_at: datetime
+
+
+class StrategyProposalCreateRequest(BaseModel):
+    strategy_id: str | None = None
+    title: str
+    description: str
+    created_by_agent: str
+
+
+class StrategyProposalResponse(BaseModel):
+    strategy_id: str
+    title: str
+    description: str
+    current_status: str
+    created_by_agent: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class StrategyStatusPatchRequest(BaseModel):
+    to_status: str
+    reason: str
+    changed_by_agent: str
+
+
+class StrategyStatusHistoryResponse(BaseModel):
+    strategy_id: str
+    from_status: str | None
+    to_status: str
+    reason: str
+    changed_by_agent: str
     created_at: datetime
 
 class BacktestRunRequest(BaseModel):
@@ -678,6 +711,26 @@ def _get_research_experiment_repo() -> ResearchExperimentRepository:
     return repo
 
 
+def _get_strategy_lifecycle_repo() -> StrategyLifecycleRepository:
+    return StrategyLifecycleRepository(get_db_url())
+
+
+def _validate_strategy_status(status: str) -> None:
+    allowed = {
+        "idea",
+        "hypothesis",
+        "implemented",
+        "backtested",
+        "reviewed",
+        "revise",
+        "rejected",
+        "candidate",
+        "human_approved",
+    }
+    if status not in allowed:
+        raise HTTPException(status_code=422, detail=f"invalid status '{status}'")
+
+
 
 @app.post("/research/reviews", response_model=ResearchReviewResponse)
 def create_research_review(payload: ResearchReviewCreateRequest):
@@ -720,6 +773,56 @@ def get_research_review(review_id: str):
     if not row:
         raise HTTPException(status_code=404, detail="review_not_found")
     return row
+
+
+@app.post("/research/strategies/proposals", response_model=StrategyProposalResponse)
+def create_strategy_proposal(payload: StrategyProposalCreateRequest):
+    try:
+        return _get_strategy_lifecycle_repo().create_proposal(payload.model_dump())
+    except psycopg.errors.UniqueViolation:
+        raise HTTPException(status_code=409, detail="strategy_id_already_exists")
+    except Exception:
+        logger.exception("database_error_creating_strategy_proposal")
+        raise HTTPException(status_code=500, detail="failed_to_create_strategy_proposal")
+
+
+@app.get("/research/strategies/{strategy_id}", response_model=StrategyProposalResponse)
+def get_strategy_proposal(strategy_id: str):
+    try:
+        row = _get_strategy_lifecycle_repo().get_strategy(strategy_id)
+    except Exception:
+        logger.exception("database_error_getting_strategy_proposal")
+        raise HTTPException(status_code=500, detail="failed_to_get_strategy_proposal")
+    if not row:
+        raise HTTPException(status_code=404, detail="strategy_not_found")
+    return row
+
+
+@app.patch("/research/strategies/{strategy_id}/status", response_model=StrategyProposalResponse)
+def patch_strategy_status(strategy_id: str, payload: StrategyStatusPatchRequest):
+    _validate_strategy_status(payload.to_status)
+    try:
+        row = _get_strategy_lifecycle_repo().patch_status(
+            strategy_id=strategy_id,
+            to_status=payload.to_status,
+            reason=payload.reason,
+            changed_by_agent=payload.changed_by_agent,
+        )
+    except Exception:
+        logger.exception("database_error_patching_strategy_status")
+        raise HTTPException(status_code=500, detail="failed_to_patch_strategy_status")
+    if not row:
+        raise HTTPException(status_code=404, detail="strategy_not_found")
+    return row
+
+
+@app.get("/research/strategies/{strategy_id}/history", response_model=list[StrategyStatusHistoryResponse])
+def get_strategy_history(strategy_id: str):
+    try:
+        return _get_strategy_lifecycle_repo().get_history(strategy_id)
+    except Exception:
+        logger.exception("database_error_getting_strategy_history")
+        raise HTTPException(status_code=500, detail="failed_to_get_strategy_history")
 
 @app.get("/research/experiments/run")
 def run_research_experiment(
