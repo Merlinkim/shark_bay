@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 import psycopg
 import requests
@@ -24,6 +24,7 @@ from app.dataset_splits import build_split_payload
 from app.walk_forward import run_walk_forward_backtest
 from app.research_agent import run_agent as run_research_agent
 from app.backtest_jobs import BacktestJobRepository, build_reproducibility_metadata
+from app.db_migrate import run_migrations as run_db_migrations
 from app.backtest import (
     BacktestRunRepository,
     CandleRepository,
@@ -38,6 +39,14 @@ configure_logging()
 logger = StructuredLogger("api")
 
 app = FastAPI(title="Shark Bay API", version="0.2.0")
+
+
+
+@app.on_event("startup")
+def ensure_queue_schema_on_startup() -> None:
+    import os
+    if os.getenv("DATABASE_URL"):
+        run_db_migrations()
 
 
 
@@ -99,9 +108,9 @@ class BacktestEquityPoint(BaseModel):
 
 class BacktestJobCreateRequest(BaseModel):
     strategy_id: str
-    params: dict[str, Any] = {}
-    risk_config: dict[str, Any] = {}
-    execution_config: dict[str, Any] = {}
+    params: dict[str, Any] = Field(default_factory=dict)
+    risk_config: dict[str, Any] = Field(default_factory=dict)
+    execution_config: dict[str, Any] = Field(default_factory=dict)
     candle_query: dict[str, Any]
 
 
