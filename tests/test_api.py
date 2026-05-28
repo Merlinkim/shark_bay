@@ -272,6 +272,84 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()['id'], 'r1')
 
+    @patch('app.api._get_strategy_lifecycle_repo')
+    def test_create_strategy_proposal(self, repo_factory):
+        repo_factory.return_value.create_proposal.return_value = {
+            'strategy_id': 's1',
+            'title': 'Mean Reversion',
+            'description': 'test',
+            'current_status': 'idea',
+            'created_by_agent': 'arthur',
+            'created_at': '2026-01-01T00:00:00+00:00',
+            'updated_at': '2026-01-01T00:00:00+00:00',
+        }
+        r = self.client.post('/research/strategies/proposals', json={
+            'strategy_id': 's1',
+            'title': 'Mean Reversion',
+            'description': 'test',
+            'created_by_agent': 'arthur',
+        })
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['current_status'], 'idea')
+
+    @patch('app.api._get_strategy_lifecycle_repo')
+    def test_get_strategy_proposal(self, repo_factory):
+        repo_factory.return_value.get_strategy.return_value = {
+            'strategy_id': 's1',
+            'title': 'Mean Reversion',
+            'description': 'test',
+            'current_status': 'idea',
+            'created_by_agent': 'arthur',
+            'created_at': '2026-01-01T00:00:00+00:00',
+            'updated_at': '2026-01-01T00:00:00+00:00',
+        }
+        r = self.client.get('/research/strategies/s1')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['strategy_id'], 's1')
+
+    @patch('app.api._get_strategy_lifecycle_repo')
+    def test_patch_strategy_status(self, repo_factory):
+        repo_factory.return_value.patch_status.return_value = {
+            'strategy_id': 's1',
+            'title': 'Mean Reversion',
+            'description': 'test',
+            'current_status': 'backtested',
+            'created_by_agent': 'arthur',
+            'created_at': '2026-01-01T00:00:00+00:00',
+            'updated_at': '2026-01-01T01:00:00+00:00',
+        }
+        r = self.client.patch('/research/strategies/s1/status', json={
+            'to_status': 'backtested',
+            'reason': 'Backtest complete',
+            'changed_by_agent': 'lancelot',
+        })
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['current_status'], 'backtested')
+
+    def test_patch_strategy_status_invalid(self):
+        r = self.client.patch('/research/strategies/s1/status', json={
+            'to_status': 'live',
+            'reason': 'invalid',
+            'changed_by_agent': 'lancelot',
+        })
+        self.assertEqual(r.status_code, 422)
+
+    @patch('app.api._get_strategy_lifecycle_repo')
+    def test_get_strategy_history(self, repo_factory):
+        repo_factory.return_value.get_history.return_value = [
+            {
+                'strategy_id': 's1',
+                'from_status': 'idea',
+                'to_status': 'hypothesis',
+                'reason': 'refined',
+                'changed_by_agent': 'arthur',
+                'created_at': '2026-01-01T00:10:00+00:00',
+            }
+        ]
+        r = self.client.get('/research/strategies/s1/history')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()[0]['to_status'], 'hypothesis')
+
     @patch('app.api._get_research_review_repo')
     def test_list_research_reviews(self, repo_factory):
         repo_factory.return_value.list.return_value = [{
