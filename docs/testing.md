@@ -14,6 +14,21 @@ This guide summarizes the currently available runtime checks and test commands f
 - **Expected result**: `db`, `ingestor`, `api`, `research-ui`, `prometheus`, `grafana`, and `cadvisor` appear with `Up` state (health status should be healthy where defined).
 - **Failure usually means**: one or more services failed to start, are repeatedly restarting, or are blocked by dependency/healthcheck failures.
 
+## 1.1) Migration + backtest queue smoke check
+
+- **Purpose**: ensure queue tables exist on existing DB volumes and worker can poll without crashing.
+- **Commands**:
+  ```bash
+  docker compose run --rm migrate
+  docker compose exec -T db psql -U postgres -d market_data -c "SELECT to_regclass('public.backtest_jobs') AS backtest_jobs_table;"
+  docker compose up -d --build
+  docker compose logs --since=5m backtest-worker | rg -i \"UndefinedTable|relation \\\"backtest_jobs\\\" does not exist\"
+  ```
+- **Expected result**:
+  - migration reports either "Applied migrations: ..." or "No pending migrations"
+  - `to_regclass` returns `backtest_jobs` (not null)
+  - worker logs do not contain `UndefinedTable` errors
+
 ## 2) API health check
 
 - **Purpose**: verify API process is reachable and readiness dependencies are satisfied.
