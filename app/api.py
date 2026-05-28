@@ -23,6 +23,7 @@ from app.research_analytics import build_research_analytics
 from app.dataset_splits import build_split_payload
 from app.walk_forward import run_walk_forward_backtest
 from app.research_agent import run_agent as run_research_agent
+from app.backtest_jobs import BacktestJobRepository, build_reproducibility_metadata
 from app.backtest import (
     BacktestRunRepository,
     CandleRepository,
@@ -94,6 +95,19 @@ class BacktestEquityPoint(BaseModel):
     point_index: int
     open_time: datetime
     equity: float
+
+
+class BacktestJobCreateRequest(BaseModel):
+    strategy_id: str
+    params: dict[str, Any] = {}
+    risk_config: dict[str, Any] = {}
+    execution_config: dict[str, Any] = {}
+    candle_query: dict[str, Any]
+
+
+class BacktestJobCreateResponse(BaseModel):
+    job_id: UUID
+    status: str
 
 
 class BacktestRunRequest(BaseModel):
@@ -527,6 +541,61 @@ def run_backtest(request: BacktestRunRequest):
         },
     }
 
+
+
+
+def _get_backtest_job_repo() -> BacktestJobRepository:
+    return BacktestJobRepository(get_db_url())
+
+
+@app.post("/research/jobs/backtest", response_model=BacktestJobCreateResponse)
+def create_backtest_job(request: BacktestJobCreateRequest):
+    if request.strategy_id not in get_strategy_registry_metadata():
+        raise HTTPException(status_code=400, detail="Unknown strategy_id")
+    payload = request.model_dump()
+    metadata = build_reproducibility_metadata(payload)
+    job_id = _get_backtest_job_repo().create_job(strategy_id=request.strategy_id, payload=payload, metadata=metadata)
+    return {"job_id": job_id, "status": "queued"}
+
+
+@app.get("/research/jobs/{job_id}")
+def get_backtest_job_status(job_id: UUID):
+    row = _get_backtest_job_repo().get_job(str(job_id))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {
+        "job_id": row["id"],
+        "status": row["status"],
+        "created_at": row["created_at"],
+        "started_at": row["started_at"],
+        "finished_at": row["finished_at"],
+        "cancel_requested": row["cancel_requested"],
+        "error": row["error_message"],
+        "progress": None,
+    }
+
+
+@app.get("/research/jobs/{job_id}/result")
+def get_backtest_job_result(job_id: UUID):
+    row = _get_backtest_job_repo().get_job(str(job_id))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if row["status"] != "success":
+        raise HTTPException(status_code=409, detail=f"Job not completed. Current status: {row['status']}")
+    result = _get_backtest_job_repo().get_job_result(str(job_id))
+    return {"status": row["status"], "result": result["result"], "result_reference": result["result_reference"]}
+
+
+@app.post("/research/jobs/{job_id}/cancel")
+def cancel_backtest_job(job_id: UUID):
+    row = _get_backtest_job_repo().get_job(str(job_id))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if row["status"] in {"success", "failed", "cancelled"}:
+        return {"job_id": str(job_id), "status": row["status"]}
+    _get_backtest_job_repo().request_cancellation(str(job_id))
+    latest = _get_backtest_job_repo().get_job(str(job_id))
+    return {"job_id": str(job_id), "status": latest["status"], "cancel_requested": latest["cancel_requested"]}
 
 @app.get("/research/features")
 def research_features(

@@ -33,6 +33,20 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+
+  backtest-worker:
+    build:
+      context: ./app
+    command: python -m app.backtest_worker
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@db:5432/market_data}
+      BACKTEST_JOB_POLL_SECONDS: ${BACKTEST_JOB_POLL_SECONDS:-1}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
   api:
     build:
       context: ./app
