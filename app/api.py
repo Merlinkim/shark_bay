@@ -24,6 +24,7 @@ from app.dataset_splits import build_split_payload
 from app.walk_forward import run_walk_forward_backtest
 from app.research_agent import run_agent as run_research_agent
 from app.backtest_jobs import BacktestJobRepository, build_reproducibility_metadata
+from app.reviews import ResearchReviewRepository
 from app.backtest import (
     BacktestRunRepository,
     CandleRepository,
@@ -111,6 +112,38 @@ class BacktestJobCreateResponse(BaseModel):
     job_id: UUID
     status: str
 
+
+
+class ResearchReviewCreateRequest(BaseModel):
+    strategy_id: str
+    experiment_run_id: str
+    run_id: str
+    job_id: str
+    verdict: str
+    risk_level: str
+    overfit_risk: str
+    summary: str
+    failure_reasons: list[str] = []
+    required_changes: list[str] = []
+    recommendation_to_arthur: str = ""
+    created_by_agent: str
+
+
+class ResearchReviewResponse(BaseModel):
+    id: str
+    strategy_id: str
+    experiment_run_id: str
+    run_id: str
+    job_id: str
+    verdict: str
+    risk_level: str
+    overfit_risk: str
+    summary: str
+    failure_reasons_json: list[str]
+    required_changes_json: list[str]
+    recommendation_to_arthur: str
+    created_by_agent: str
+    created_at: datetime
 
 class BacktestRunRequest(BaseModel):
     strategy_name: str
@@ -622,11 +655,71 @@ def research_features(
 
 
 
+
+def _get_research_review_repo() -> ResearchReviewRepository:
+    repo = ResearchReviewRepository(get_db_url())
+    repo.ensure_schema()
+    return repo
+
+
+def _validate_review_enums(verdict: str, risk_level: str, overfit_risk: str) -> None:
+    verdicts = {"continue", "revise", "reject", "needs_more_data", "candidate"}
+    levels = {"low", "medium", "high"}
+    if verdict not in verdicts:
+        raise HTTPException(status_code=422, detail=f"invalid verdict '{verdict}'")
+    if risk_level not in levels:
+        raise HTTPException(status_code=422, detail=f"invalid risk_level '{risk_level}'")
+    if overfit_risk not in levels:
+        raise HTTPException(status_code=422, detail=f"invalid overfit_risk '{overfit_risk}'")
+
 def _get_research_experiment_repo() -> ResearchExperimentRepository:
     repo = ResearchExperimentRepository(get_db_url())
     repo.ensure_schema()
     return repo
 
+
+
+@app.post("/research/reviews", response_model=ResearchReviewResponse)
+def create_research_review(payload: ResearchReviewCreateRequest):
+    _validate_review_enums(payload.verdict, payload.risk_level, payload.overfit_risk)
+    try:
+        return _get_research_review_repo().create(payload.model_dump())
+    except Exception:
+        logger.exception("database_error_creating_research_review")
+        raise HTTPException(status_code=500, detail="failed_to_create_review")
+
+
+@app.get("/research/reviews", response_model=list[ResearchReviewResponse])
+def list_research_reviews(
+    strategy_id: str | None = Query(default=None),
+    experiment_run_id: str | None = Query(default=None),
+    verdict: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+):
+    if verdict is not None:
+        _validate_review_enums(verdict, "low", "low")
+    try:
+        return _get_research_review_repo().list(
+            strategy_id=strategy_id,
+            experiment_run_id=experiment_run_id,
+            verdict=verdict,
+            limit=limit,
+        )
+    except Exception:
+        logger.exception("database_error_listing_research_reviews")
+        raise HTTPException(status_code=500, detail="failed_to_list_reviews")
+
+
+@app.get("/research/reviews/{review_id}", response_model=ResearchReviewResponse)
+def get_research_review(review_id: str):
+    try:
+        row = _get_research_review_repo().get(review_id)
+    except Exception:
+        logger.exception("database_error_getting_research_review")
+        raise HTTPException(status_code=500, detail="failed_to_get_review")
+    if not row:
+        raise HTTPException(status_code=404, detail="review_not_found")
+    return row
 
 @app.get("/research/experiments/run")
 def run_research_experiment(
