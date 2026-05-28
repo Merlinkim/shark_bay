@@ -24,6 +24,7 @@ from app.backtest import (
     get_strategy_registry_metadata,
     persist_backtest_outputs,
 )
+from app.experiment_registry import ExperimentRegistryRepository, ExperimentRunRecord
 
 JOB_STATUSES = {"queued", "running", "success", "failed", "cancelled"}
 
@@ -201,6 +202,8 @@ def build_reproducibility_metadata(payload: dict[str, Any]) -> dict[str, Any]:
         "config_hash": hashlib.sha256(config_serialized.encode("utf-8")).hexdigest()[:24],
         "execution_config": payload.get("execution_config", {}),
         "risk_config": payload.get("risk_config", {}),
+        "execution_config_hash": hashlib.sha256(json.dumps(payload.get("execution_config", {}), sort_keys=True, default=str).encode("utf-8")).hexdigest()[:24],
+        "risk_config_hash": hashlib.sha256(json.dumps(payload.get("risk_config", {}), sort_keys=True, default=str).encode("utf-8")).hexdigest()[:24],
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     try:
@@ -255,4 +258,20 @@ def execute_job(db_url: str, job_row: dict[str, Any]) -> tuple[dict[str, Any], s
             "win_rate": result.win_rate_pct,
         },
     }
+    reproducibility = job_row.get("reproducibility_json") or {}
+    ExperimentRegistryRepository(db_url).create_from_backtest(
+        ExperimentRunRecord(
+            strategy_id=strategy_id,
+            run_id=run_id,
+            job_id=str(job_row["id"]),
+            config_hash=result.config_hash,
+            dataset_fingerprint=result.dataset_fingerprint,
+            risk_config_hash=str(reproducibility.get("risk_config_hash") or ""),
+            execution_config_hash=str(reproducibility.get("execution_config_hash") or ""),
+            git_commit_hash=reproducibility.get("git_commit_hash"),
+            summary_metrics=job_result["summary_metrics"],
+            result_reference=result_ref,
+        )
+    )
+
     return job_result, result_ref
