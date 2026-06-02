@@ -74,6 +74,7 @@ Do not commit real API keys. `.env.example` contains placeholders only.
 ### 1. Install / 설치
 
 Python 3.12가 권장됩니다. 최소 지원 버전은 Python 3.10입니다.
+## Install and run locally
 
 ```bash
 cd /path/to/shark_bay/external/sharkbay_mcp
@@ -124,6 +125,16 @@ python -m server
 정상 실행 시 프로세스가 MCP stdio 서버로 대기합니다. 터미널에서 직접 실행하면 일반 웹 서버처럼 URL을 출력하지 않을 수 있습니다. 실제 사용은 OpenClaw MCP 등록을 통해 호출하는 방식입니다.
 
 ### 4. Register with OpenClaw / OpenClaw에 등록
+export SHARKBAY_BASE_URL="https://your-sharkbay-api-server"
+export SHARKBAY_API_KEY="Bearer optional-token"
+python -m server
+```
+
+The server communicates over MCP stdio using the `mcp` Python package. If `python3.12` is not available, use any Python 3.10+ interpreter; Python 3.12 remains preferred.
+
+## Register with OpenClaw
+
+Example registration:
 
 ```bash
 openclaw mcp set sharkbay '{
@@ -203,6 +214,7 @@ python -m pip install -r requirements.txt
 그 다음 OpenClaw 등록의 `cwd`를 `/opt/sharkbay_mcp`로 설정합니다.
 
 The server communicates over MCP stdio using the `mcp` Python package. If `python3.12` is not available, use any Python 3.10+ interpreter; Python 3.12 remains preferred.
+For an agent-server deployment, copy this directory to the agent server, create the virtual environment with Python 3.12 where possible, install `requirements.txt`, and point `cwd` at the copied folder. Only `SHARKBAY_BASE_URL` needs to know where SharkBay is hosted.
 
 ## Example tool calls
 
@@ -318,4 +330,9 @@ Tests use mocked OpenAPI and mocked HTTP responses, so no live SharkBay server i
 
 ```bash
 python -m pytest tests -q
+Tests use mocked OpenAPI and mocked HTTP responses, so no live SharkBay server is required:
+
+```bash
+cd /path/to/shark_bay/external/sharkbay_mcp
+pytest
 ```
