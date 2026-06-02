@@ -67,6 +67,13 @@ Copy `.env.example` and set values in the OpenClaw MCP environment or your proce
 
 Do not commit real API keys. `.env.example` contains placeholders only.
 
+## Quick start: install, run, and test
+
+아래 순서대로 하면 됩니다. 이 MCP는 SharkBay 앱 서버에서 실행하는 것이 아니라 **OpenClaw/agent 서버에서 실행**하고, `SHARKBAY_BASE_URL`을 통해 원격 SharkBay API를 호출합니다.
+
+### 1. Install / 설치
+
+Python 3.12가 권장됩니다. 최소 지원 버전은 Python 3.10입니다.
 ## Install and run locally
 
 ```bash
@@ -75,6 +82,49 @@ python3.12 -m venv .venv
 . .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
+```
+
+`python3.12` 명령이 없다면 Python 3.10 이상 인터프리터를 사용할 수 있습니다. 예를 들어:
+
+```bash
+python3.10 -m venv .venv
+```
+
+설치 확인:
+
+```bash
+python --version
+python -m pip show mcp
+```
+
+### 2. Configure / 환경변수 설정
+
+최소 설정은 `SHARKBAY_BASE_URL`입니다. 인증이 필요한 SharkBay API라면 `SHARKBAY_API_KEY`도 설정합니다.
+
+```bash
+export SHARKBAY_BASE_URL="https://your-sharkbay-api-server"
+export SHARKBAY_API_KEY="Bearer optional-token"
+```
+
+OpenAPI URL을 직접 지정해야 하면 다음을 추가합니다. 지정하지 않으면 `${SHARKBAY_BASE_URL}/openapi.json`를 사용합니다.
+
+```bash
+export SHARKBAY_OPENAPI_URL="https://your-sharkbay-api-server/openapi.json"
+```
+
+### 3. Run / 실행
+
+MCP 서버는 stdio 기반으로 실행됩니다. 보통은 OpenClaw가 실행하지만, 로컬에서 프로세스가 시작되는지 확인하려면 다음 명령을 사용할 수 있습니다.
+
+```bash
+cd /path/to/shark_bay/external/sharkbay_mcp
+. .venv/bin/activate
+python -m server
+```
+
+정상 실행 시 프로세스가 MCP stdio 서버로 대기합니다. 터미널에서 직접 실행하면 일반 웹 서버처럼 URL을 출력하지 않을 수 있습니다. 실제 사용은 OpenClaw MCP 등록을 통해 호출하는 방식입니다.
+
+### 4. Register with OpenClaw / OpenClaw에 등록
 export SHARKBAY_BASE_URL="https://your-sharkbay-api-server"
 export SHARKBAY_API_KEY="Bearer optional-token"
 python -m server
@@ -98,6 +148,72 @@ openclaw mcp set sharkbay '{
 }'
 ```
 
+가상환경의 Python을 명시하고 싶으면 `command`를 `.venv/bin/python`의 절대경로로 바꿉니다.
+
+```json
+{
+  "command": "/path/to/shark_bay/external/sharkbay_mcp/.venv/bin/python",
+  "args": ["-m", "server"],
+  "cwd": "/path/to/shark_bay/external/sharkbay_mcp"
+}
+```
+
+### 5. Test / 테스트
+
+단위 테스트는 live SharkBay 서버 없이 실행됩니다. mocked OpenAPI schema와 mocked HTTP response를 사용합니다.
+
+```bash
+cd /path/to/shark_bay/external/sharkbay_mcp
+. .venv/bin/activate
+python -m pytest tests -q
+```
+
+레포 루트에서 실행하는 경우:
+
+```bash
+python -m pytest external/sharkbay_mcp/tests -q
+```
+
+문법/bytecode 확인:
+
+```bash
+python -m compileall -q openapi_client.py schema_registry.py safety.py python_version.py tests
+```
+
+레포 루트에서 실행하는 경우:
+
+```bash
+python -m compileall -q external/sharkbay_mcp/openapi_client.py external/sharkbay_mcp/schema_registry.py external/sharkbay_mcp/safety.py external/sharkbay_mcp/python_version.py external/sharkbay_mcp/tests
+```
+
+테스트가 검증하는 항목:
+
+- `list_endpoints` OpenAPI endpoint 목록 생성
+- `get_endpoint_schema` endpoint schema 조회
+- `call_endpoint` 성공 호출
+- 필수 path parameter 누락 처리
+- 존재하지 않는 endpoint ID 거부
+- secret redaction
+- response truncation
+- Python 3.10 미만 runtime error message
+
+### 6. Copy to an agent server / agent 서버로 복사해서 실행
+
+이 폴더만 복사해도 동작하도록 설계되어 있습니다. 예:
+
+```bash
+scp -r external/sharkbay_mcp openclaw-agent:/opt/sharkbay_mcp
+ssh openclaw-agent
+cd /opt/sharkbay_mcp
+python3.12 -m venv .venv
+. .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+그 다음 OpenClaw 등록의 `cwd`를 `/opt/sharkbay_mcp`로 설정합니다.
+
+The server communicates over MCP stdio using the `mcp` Python package. If `python3.12` is not available, use any Python 3.10+ interpreter; Python 3.12 remains preferred.
 For an agent-server deployment, copy this directory to the agent server, create the virtual environment with Python 3.12 where possible, install `requirements.txt`, and point `cwd` at the copied folder. Only `SHARKBAY_BASE_URL` needs to know where SharkBay is hosted.
 
 ## Example tool calls
@@ -210,6 +326,10 @@ The MCP checks the interpreter version before importing `mcp`. This usually mean
 
 ## Tests
 
+Tests use mocked OpenAPI and mocked HTTP responses, so no live SharkBay server is required. The recommended commands are listed in [Quick start: install, run, and test](#quick-start-install-run-and-test). The shortest command from this directory is:
+
+```bash
+python -m pytest tests -q
 Tests use mocked OpenAPI and mocked HTTP responses, so no live SharkBay server is required:
 
 ```bash
