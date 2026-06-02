@@ -1,0 +1,4 @@
+# Python 3.10+ is required because mcp>=1.9.0 does not support Python 3.9.
+# Python 3.12 is recommended for local development and agent-server deployment.
+mcp>=1.9.0
+pytest>=8.0.0
