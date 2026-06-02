@@ -1,0 +1,14 @@
+[project]
+name = "sharkbay-mcp"
+version = "0.1.0"
+description = "Standalone MCP bridge for calling SharkBay through its public REST API and OpenAPI schema."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "mcp>=1.9.0",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8.0.0",
+]

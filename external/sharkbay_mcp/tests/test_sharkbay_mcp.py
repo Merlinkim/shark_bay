@@ -4,6 +4,7 @@ import json
 
 
 from openapi_client import OpenAPIClient, SimpleResponse
+from python_version import build_version_error, enforce_supported_python
 from safety import redact
 from schema_registry import SchemaRegistry
 
@@ -155,3 +156,24 @@ def test_response_truncation() -> None:
     assert result["success"] is True
     assert result["truncated"] is True
     assert isinstance(result["response_summary"], str)
+
+
+def test_python_version_error_message_for_unsupported_runtime(capsys) -> None:
+    try:
+        enforce_supported_python((3, 9, 6))
+    except SystemExit as exc:
+        assert exc.code == 1
+    else:
+        raise AssertionError("Expected SystemExit for Python 3.9")
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == build_version_error((3, 9, 6)) + "\n"
+    assert "Python 3.10+ is required" in captured.err
+    assert "Python 3.9.6" in captured.err
+    assert "Python 3.12" in captured.err
+
+
+def test_python_version_check_allows_supported_runtime() -> None:
+    enforce_supported_python((3, 10, 0))
+    enforce_supported_python((3, 12, 1))

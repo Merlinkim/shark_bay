@@ -35,6 +35,23 @@ At startup/tool-call time, the MCP loads OpenAPI through `OpenAPIClient`:
 
 The fallback is useful when running tests or when deploying the MCP to an agent server with a copied schema snapshot.
 
+## Python runtime compatibility
+
+This MCP requires **Python 3.10 or newer** because `mcp>=1.9.0` does not support Python 3.9. Python **3.12 is recommended** for local development and agent-server deployment.
+
+Compatibility is declared in `pyproject.toml` with `requires-python = ">=3.10"`, and `server.py` performs a startup check before importing the MCP runtime. If the interpreter is too old, startup exits cleanly with a message like:
+
+```text
+ERROR:
+Python 3.10+ is required.
+
+Detected:
+Python 3.9.6
+
+Recommended:
+Python 3.12
+```
+
 ## Configuration
 
 Copy `.env.example` and set values in the OpenClaw MCP environment or your process manager:
@@ -54,15 +71,16 @@ Do not commit real API keys. `.env.example` contains placeholders only.
 
 ```bash
 cd /path/to/shark_bay/external/sharkbay_mcp
-python -m venv .venv
+python3.12 -m venv .venv
 . .venv/bin/activate
-pip install -r requirements.txt
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 export SHARKBAY_BASE_URL="https://your-sharkbay-api-server"
 export SHARKBAY_API_KEY="Bearer optional-token"
 python -m server
 ```
 
-The server communicates over MCP stdio using the `mcp` Python package.
+The server communicates over MCP stdio using the `mcp` Python package. If `python3.12` is not available, use any Python 3.10+ interpreter; Python 3.12 remains preferred.
 
 ## Register with OpenClaw
 
@@ -80,7 +98,7 @@ openclaw mcp set sharkbay '{
 }'
 ```
 
-For an agent-server deployment, copy this directory to the agent server, install `requirements.txt`, and point `cwd` at the copied folder. Only `SHARKBAY_BASE_URL` needs to know where SharkBay is hosted.
+For an agent-server deployment, copy this directory to the agent server, create the virtual environment with Python 3.12 where possible, install `requirements.txt`, and point `cwd` at the copied folder. Only `SHARKBAY_BASE_URL` needs to know where SharkBay is hosted.
 
 ## Example tool calls
 
@@ -167,6 +185,28 @@ This MCP does not:
 - store or print API keys.
 
 OpenClaw receives returned tool results and remains responsible for any memory/RAG/Wiki writes.
+
+## Troubleshooting
+
+### `pip install -r requirements.txt` fails on Python 3.9
+
+If dependency installation fails with a message indicating that `mcp` requires Python 3.10 or newer, recreate the virtual environment with Python 3.12:
+
+```bash
+cd /path/to/shark_bay/external/sharkbay_mcp
+rm -rf .venv
+python3.12 -m venv .venv
+. .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m server
+```
+
+If Python 3.12 is not installed on the agent server, install it through your operating system package manager, `pyenv`, or your standard server image build process. Python 3.10 and 3.11 are supported, but Python 3.12 is recommended.
+
+### Startup prints `Python 3.10+ is required`
+
+The MCP checks the interpreter version before importing `mcp`. This usually means OpenClaw is launching `python` from an older virtual environment. Update the OpenClaw MCP registration so `command` points to the Python 3.12 virtual-environment binary, or rebuild `.venv` with Python 3.12 and keep `command` as `python` while `cwd` points to this folder.
 
 ## Tests
 

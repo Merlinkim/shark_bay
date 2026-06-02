@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from python_version import enforce_supported_python
+
+enforce_supported_python()
+
 from mcp.server.fastmcp import FastMCP
 
 from openapi_client import OpenAPIClient
