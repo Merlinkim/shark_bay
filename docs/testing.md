@@ -26,6 +26,7 @@ This guide summarizes the currently available runtime checks and test commands f
   ```
 - **Expected result**:
   - migration reports either "Applied migrations: ..." or "No pending migrations"
+  - if a newly pulled migration is expected but the runner reports "No pending migrations", verify `app/migrations` on the host contains the file and rerun `docker compose run --rm --build migrate`
   - `to_regclass` returns `backtest_jobs` (not null)
   - worker logs do not contain `UndefinedTable` errors
 

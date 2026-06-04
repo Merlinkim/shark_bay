@@ -228,6 +228,8 @@ Apply migrations without deleting your PostgreSQL volume:
 docker compose run --rm migrate
 ```
 
+The `migrate` service bind-mounts `./app/migrations` into the container so newly pulled SQL migration files are visible even before rebuilding the app image. If you still see `No pending migrations` while expecting a new file, confirm the file exists on the host with `ls app/migrations` and rerun with `docker compose run --rm --build migrate` to force an image refresh.
+
 This is safe to run repeatedly; already-applied migrations are skipped.
 
 ```bash
