@@ -64,6 +64,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    volumes:
+      - ./app/migrations:/srv/app/migrations:ro
     restart: "no"
 
   api:
