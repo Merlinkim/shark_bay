@@ -137,6 +137,7 @@ def update_strategy(strategy_id: str, patch: dict[str, Any]) -> dict[str, Any]:
     if not _is_managed_gawain_path(path):
         raise PermissionError("Only strategies under strategies/gawain can be updated")
 
+    original_source = path.read_text(encoding="utf-8")
     current_meta = dict(definition.meta)
     next_payload = {field: current_meta.get(field) for field in MANAGED_STRATEGY_FIELDS}
     next_payload["strategy_id"] = strategy_id
@@ -144,10 +145,15 @@ def update_strategy(strategy_id: str, patch: dict[str, Any]) -> dict[str, Any]:
         if field in patch:
             next_payload[field] = patch[field]
     next_meta = forced_strategy_meta(next_payload)
-    source = str(patch["code"]) if "code" in patch else path.read_text(encoding="utf-8")
+    source = str(patch["code"]) if "code" in patch else original_source
     path.write_text(render_strategy_file(source, next_meta), encoding="utf-8")
-    reload_strategies()
-    return dict(get_strategy_definition(strategy_id).meta)
+    try:
+        reload_strategies()
+        return dict(get_strategy_definition(strategy_id).meta)
+    except Exception:
+        path.write_text(original_source, encoding="utf-8")
+        reload_strategies()
+        raise
 
 
 def delete_strategy(strategy_id: str) -> dict[str, Any]:

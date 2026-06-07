@@ -74,6 +74,10 @@ def test_create_get_validate_patch_delete_strategy_lifecycle():
         assert fetched.status_code == 200
         assert fetched.json()["name"] == "API Test Signal Strategy"
 
+        listed = CLIENT.get("/strategies")
+        assert listed.status_code == 200
+        assert TEST_STRATEGY_ID in listed.json()["strategies"]
+
         valid = CLIENT.post(f"/strategies/{TEST_STRATEGY_ID}/validate", json={"parameters": {"threshold": 2.0}})
         assert valid.status_code == 200
         assert valid.json()["valid"] is True
@@ -106,14 +110,14 @@ def test_create_strategy_rejects_invalid_id_and_missing_contract():
     cleanup_strategy("Invalid-ID")
     bad_id = CLIENT.post("/strategies", json=payload("Invalid-ID"))
     assert bad_id.status_code == 400
-    assert "strategy_id must match" in bad_id.json()["detail"]
+    assert "strategy_id must match" in bad_id.json()["detail"]["message"]
 
     missing_contract_payload = payload("missing_contract_strategy")
     missing_contract_payload["code"] = 'STRATEGY_META = {"strategy_id": "missing_contract_strategy"}\n'
     try:
         bad_contract = CLIENT.post("/strategies", json=missing_contract_payload)
         assert bad_contract.status_code == 400
-        assert "required_features" in bad_contract.json()["detail"]
+        assert "required_features" in bad_contract.json()["detail"]["message"]
     finally:
         cleanup_strategy("missing_contract_strategy")
 
@@ -121,7 +125,7 @@ def test_create_strategy_rejects_invalid_id_and_missing_contract():
 def test_builtin_strategy_cannot_be_deleted_or_patched():
     deleted = CLIENT.delete("/strategies/sma_crossover")
     assert deleted.status_code == 403
-    assert "Builtin strategies cannot be deleted" in deleted.json()["detail"]
+    assert "Builtin strategies cannot be deleted" in deleted.json()["detail"]["message"]
 
     patched = CLIENT.patch("/strategies/sma_crossover", json={"description": "nope"})
     assert patched.status_code == 403
@@ -132,3 +136,21 @@ def test_reload_strategies_returns_registry():
     assert reloaded.status_code == 200
     assert "strategies" in reloaded.json()
     assert "sma_crossover" in reloaded.json()["strategies"]
+
+
+def test_static_strategy_routes_are_registered_before_dynamic_routes():
+    paths = [route.path for route in app.routes]
+    dynamic_index = paths.index("/strategies/{strategy_id}")
+    assert paths.index("/strategies/reload") < dynamic_index
+    assert paths.index("/strategies/registry") < dynamic_index
+
+
+def test_post_strategies_validation_errors_are_json():
+    cleanup_strategy("bad_json_error_strategy")
+    bad_payload = payload("bad_json_error_strategy")
+    bad_payload["code"] = "def not_a_strategy():\n    return None\n"
+    response = CLIENT.post("/strategies", json=bad_payload)
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["error"] == "ValueError"
+    assert "STRATEGY_META" in detail["message"]
