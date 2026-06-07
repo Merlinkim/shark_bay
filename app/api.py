@@ -38,6 +38,15 @@ from app.backtest import (
     build_strategy,
 )
 
+from app.strategy_management import (
+    create_strategy,
+    delete_strategy,
+    get_strategy_definition,
+    reload_strategies,
+    update_strategy,
+    validate_executable_strategy,
+)
+
 configure_logging()
 logger = StructuredLogger("api")
 
@@ -58,7 +67,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_parse_cors_origins(),
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -113,6 +122,28 @@ class BacktestJobCreateResponse(BaseModel):
     job_id: UUID
     status: str
 
+
+class StrategyCreateRequest(BaseModel):
+    strategy_id: str
+    name: str
+    description: str = ""
+    version: str = "0.1.0"
+    parameter_schema: dict[str, Any] = {}
+    default_parameters: dict[str, Any] = {}
+    code: str
+
+
+class StrategyPatchRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    version: str | None = None
+    parameter_schema: dict[str, Any] | None = None
+    default_parameters: dict[str, Any] | None = None
+    code: str | None = None
+
+
+class StrategyValidateRequest(BaseModel):
+    parameters: dict[str, Any] = {}
 
 
 class ResearchReviewCreateRequest(BaseModel):
@@ -482,9 +513,48 @@ def _get_backtest_repo() -> BacktestRunRepository:
     return BacktestRunRepository(get_db_url())
 
 
+def _strategy_request_payload(request: BaseModel) -> dict[str, Any]:
+    if hasattr(request, "model_dump"):
+        return request.model_dump(exclude_unset=True)
+    return request.dict(exclude_unset=True)
+
+
+def _strategy_api_error(exc: Exception, status_code: int = 400) -> HTTPException:
+    return HTTPException(status_code=status_code, detail={"error": type(exc).__name__, "message": str(exc)})
+
+
 @app.get("/strategies")
 def list_strategies():
-    return {"strategies": get_strategy_registry_metadata()}
+    try:
+        return {"strategies": get_strategy_registry_metadata()}
+    except Exception as exc:
+        logger.exception("strategy_registry_list_failed")
+        raise _strategy_api_error(exc, 500)
+
+
+@app.post("/strategies")
+def create_executable_strategy(request: StrategyCreateRequest):
+    try:
+        return create_strategy(_strategy_request_payload(request))
+    except FileExistsError as exc:
+        raise _strategy_api_error(exc, 409)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise _strategy_api_error(exc, 400)
+    except Exception as exc:
+        logger.exception("strategy_create_failed")
+        raise _strategy_api_error(exc, 500)
+
+
+# Static /strategies routes must be registered before dynamic /strategies/{strategy_id}.
+@app.post("/strategies/reload")
+def reload_executable_strategies():
+    try:
+        return {"strategies": reload_strategies()}
+    except ValueError as exc:
+        raise _strategy_api_error(exc, 400)
+    except Exception as exc:
+        logger.exception("strategy_reload_failed")
+        raise _strategy_api_error(exc, 500)
 
 
 @app.get("/strategies/registry")
@@ -493,7 +563,11 @@ def list_strategy_registry(
     symbol: str | None = Query(default=None),
     interval: str | None = Query(default=None),
 ):
-    strategies = list(get_strategy_registry_metadata().values())
+    try:
+        strategies = list(get_strategy_registry_metadata().values())
+    except Exception as exc:
+        logger.exception("strategy_registry_list_failed")
+        raise _strategy_api_error(exc, 500)
     if status:
         strategies = [s for s in strategies if s.get("status") == status]
     if symbol:
@@ -501,6 +575,56 @@ def list_strategy_registry(
     if interval:
         strategies = [s for s in strategies if s.get("interval") == interval]
     return {"strategies": strategies}
+
+
+@app.get("/strategies/{strategy_id}")
+def get_executable_strategy(strategy_id: str):
+    try:
+        return dict(get_strategy_definition(strategy_id).meta)
+    except ValueError as exc:
+        raise _strategy_api_error(exc, 404)
+    except Exception as exc:
+        logger.exception("strategy_get_failed", strategy_id=strategy_id)
+        raise _strategy_api_error(exc, 500)
+
+
+@app.patch("/strategies/{strategy_id}")
+def patch_executable_strategy(strategy_id: str, request: StrategyPatchRequest):
+    try:
+        return update_strategy(strategy_id, _strategy_request_payload(request))
+    except PermissionError as exc:
+        raise _strategy_api_error(exc, 403)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise _strategy_api_error(exc, 400)
+    except Exception as exc:
+        logger.exception("strategy_patch_failed", strategy_id=strategy_id)
+        raise _strategy_api_error(exc, 500)
+
+
+@app.delete("/strategies/{strategy_id}")
+def delete_executable_strategy(strategy_id: str):
+    try:
+        return delete_strategy(strategy_id)
+    except PermissionError as exc:
+        raise _strategy_api_error(exc, 403)
+    except ValueError as exc:
+        raise _strategy_api_error(exc, 404)
+    except Exception as exc:
+        logger.exception("strategy_delete_failed", strategy_id=strategy_id)
+        raise _strategy_api_error(exc, 500)
+
+
+@app.post("/strategies/{strategy_id}/validate")
+def validate_strategy_endpoint(strategy_id: str, request: StrategyValidateRequest | None = None):
+    try:
+        parameters = request.parameters if request else {}
+        result = validate_executable_strategy(strategy_id, parameters)
+    except Exception as exc:
+        logger.exception("strategy_validate_failed", strategy_id=strategy_id)
+        raise _strategy_api_error(exc, 500)
+    if not result["valid"]:
+        return JSONResponse(status_code=400, content=result)
+    return result
 
 
 @app.get("/backtests", response_model=list[BacktestRunSummary])

@@ -33,3 +33,7 @@ This removes dual-registry drift and keeps UI-visible strategies executable unle
 
 ## Engine ownership boundaries
 Strategies generate signals only. Backtest engine remains sole owner of execution simulation, fees, slippage, PnL, metrics, and persistence.
+
+## Managed writable strategy directory
+
+The Strategy Management API persists user-managed executable strategy modules under `strategies/gawain/` only. In Docker, `strategies/builtin/` remains read-only, while `strategies/gawain/` is bind-mounted as the writable managed strategy directory for the API container. Keep this directory present on the host before container startup; the repository includes `strategies/gawain/.gitkeep` so the bind mount target exists without making builtin strategies writable.

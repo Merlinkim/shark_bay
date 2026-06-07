@@ -530,6 +530,7 @@ strategy_registry.register(MyNewStrategy)
 - The API `/strategies` endpoint returns strategy metadata from the registry.
 - The Streamlit UI auto-builds strategy parameter controls from `parameter_schema` + `default_parameters`.
 - The API `/backtests/run` validates both `strategy_name` and `strategy_params` using the strategy registry before execution.
+- The Strategy Management API writes managed executable strategy files only to `strategies/gawain/`; Docker keeps `strategies/builtin/` read-only and bind-mounts only `strategies/gawain/` as writable for the API container.
 
 ### Example strategy template
 
