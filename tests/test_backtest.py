@@ -6,6 +6,7 @@ import pytest
 from app.backtest import (
     Candle,
     ExecutionConfig,
+    DynamicSignalStrategy,
     RiskConfig,
     SimulatedExecutionModel,
     build_config_hash,
@@ -78,3 +79,47 @@ def test_invalid_position_size_mode_fails_cleanly():
     )
     with pytest.raises(ValueError, match="Unsupported position_size_mode"):
         engine.run(candles, AlwaysLongStrategy(), config_hash="cfg", dataset_fingerprint=dataset_fingerprint)
+
+
+def test_dynamic_strategy_receives_dataframe_for_signal_generation():
+    candles = [
+        Candle(
+            symbol="BTCUSDT",
+            open_time=datetime.fromtimestamp(60 * i, tz=timezone.utc),
+            open=Decimal(str(100 + i)),
+            high=Decimal(str(101 + i)),
+            low=Decimal(str(99 + i)),
+            close=Decimal(str(100 + i)),
+            volume=Decimal("10"),
+        )
+        for i in range(8)
+    ]
+
+    class DataFrameStrategyModule:
+        @staticmethod
+        def prepare_features(df, params):
+            out = df.copy()
+            out["ema_fast"] = out["close"].ewm(span=2, adjust=False).mean()
+            out["rolling_close"] = out["close"].rolling(window=2).mean()
+            out["return"] = out["close"].pct_change().fillna(0.0)
+            out.loc[out["volume"] > 0, "has_volume"] = 1
+            return out
+
+        @staticmethod
+        def generate_signals(df, params):
+            out = df.copy()
+            out["signal"] = 0
+            out.loc[out["ema_fast"] > out["rolling_close"], "signal"] = 1
+            return out[["signal"]]
+
+    strategy = DynamicSignalStrategy("df_strategy", DataFrameStrategyModule, {})
+    dataset_fingerprint = build_dataset_fingerprint(candles)
+    result = SimulatedExecutionModel(initial_cash=1000).run(
+        candles,
+        strategy,
+        config_hash="cfg",
+        dataset_fingerprint=dataset_fingerprint,
+    )
+
+    assert result.dataset_row_count == len(candles)
+    assert result.final_equity > 0

@@ -21,6 +21,10 @@ class Candle:
     symbol: str
     open_time: datetime
     close: Decimal
+    open: Decimal | None = None
+    high: Decimal | None = None
+    low: Decimal | None = None
+    volume: Decimal | None = None
 
 
 class CandleRepository:
@@ -60,7 +64,7 @@ class CandleRepository:
             with conn.cursor() as cur:
                 cur.execute(
                     f"""
-                    SELECT symbol, open_time, close
+                    SELECT symbol, open_time, open, high, low, close, volume
                     FROM candles_1m
                     WHERE {where_sql}
                     ORDER BY open_time ASC
@@ -70,7 +74,18 @@ class CandleRepository:
                 )
                 rows = cur.fetchall()
 
-        return [Candle(symbol=row["symbol"], open_time=row["open_time"], close=row["close"]) for row in rows]
+        return [
+            Candle(
+                symbol=row["symbol"],
+                open_time=row["open_time"],
+                open=row["open"],
+                high=row["high"],
+                low=row["low"],
+                close=row["close"],
+                volume=row["volume"],
+            )
+            for row in rows
+        ]
 
 
 class Strategy(Protocol):
@@ -227,6 +242,66 @@ class BollingerRsiStrategy:
         return self.current_position
 
 
+def _strategy_dataframe_class():
+    import pandas as pd
+
+    class StrategyDataFrame(pd.DataFrame):
+        @property
+        def _constructor(self):
+            return StrategyDataFrame
+
+        def __iter__(self):
+            return iter(self.to_dict("records"))
+
+    return StrategyDataFrame
+
+
+def _candle_field(candle: Candle, field: str, default: object | None = None) -> object:
+    if isinstance(candle, dict):
+        return candle.get(field, default)
+    return getattr(candle, field, default)
+
+
+def candles_to_strategy_dataframe(candles: list[Candle]) -> Any:
+    StrategyDataFrame = _strategy_dataframe_class()
+    required_columns = ["open_time", "open", "high", "low", "close", "volume"]
+    rows = []
+    for candle in candles:
+        open_time = _candle_field(candle, "open_time")
+        if open_time is None:
+            raise ValueError("Candle is missing required open_time column")
+        close = _candle_field(candle, "close")
+        if close is None:
+            raise ValueError("Candle is missing required close column")
+        rows.append(
+            {
+                "open_time": open_time,
+                "open": float(_candle_field(candle, "open", close) or close),
+                "high": float(_candle_field(candle, "high", close) or close),
+                "low": float(_candle_field(candle, "low", close) or close),
+                "close": float(close),
+                "volume": float(_candle_field(candle, "volume", 0) or 0),
+                "symbol": _candle_field(candle, "symbol"),
+            }
+        )
+    df = StrategyDataFrame(rows, columns=[*required_columns, "symbol"])
+    missing = [column for column in required_columns if column not in df.columns]
+    if missing:
+        raise ValueError(f"Strategy DataFrame missing required columns: {', '.join(missing)}")
+    return df
+
+
+def _signal_records(signal_rows: object) -> list[object]:
+    if hasattr(signal_rows, "to_dict"):
+        try:
+            return signal_rows.to_dict("records")
+        except TypeError:
+            return list(signal_rows.to_dict().values())
+    if hasattr(signal_rows, "tolist"):
+        return signal_rows.tolist()
+    return list(signal_rows)
+
+
 class DynamicSignalStrategy:
     def __init__(self, strategy_id: str, module: Any, params: dict[str, object]):
         self.strategy_name = strategy_id
@@ -236,10 +311,13 @@ class DynamicSignalStrategy:
         self._cursor = 0
 
     def set_candles(self, candles: list[Candle]) -> None:
-        frame = [{"open_time": c.open_time, "close": float(c.close), "symbol": c.symbol} for c in candles]
+        frame = candles_to_strategy_dataframe(candles)
         prepared = self.module.prepare_features(frame, self.params)
         signal_rows = self.module.generate_signals(prepared, self.params)
-        self._signals = [int(row.get("signal", 0)) for row in signal_rows]
+        self._signals = [
+            int(row.get("signal", 0) if isinstance(row, dict) else row)
+            for row in _signal_records(signal_rows)
+        ]
         self._cursor = 0
 
     def on_candle(self, candle: Candle) -> int:
