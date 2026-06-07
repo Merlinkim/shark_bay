@@ -86,6 +86,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./strategies:/srv/strategies:ro
+      - ./strategies/gawain:/srv/strategies/gawain:rw
 
   research-ui:
     build:
