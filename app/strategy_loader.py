@@ -17,6 +17,7 @@ class StrategyDefinition:
     strategy_id: str
     meta: dict[str, Any]
     module: ModuleType
+    source_path: Path
 
 
 class StrategyLoader:
@@ -46,6 +47,7 @@ class StrategyLoader:
         out = {}
         for sid, definition in self._definitions.items():
             meta = dict(definition.meta)
+            meta.setdefault("strategy_name", sid)
             meta.setdefault("metadata_only", False)
             out[sid] = meta
         return out
@@ -83,7 +85,7 @@ class StrategyLoader:
         for fn_name in REQUIRED_FUNCTIONS:
             if not callable(getattr(module, fn_name, None)):
                 raise ValueError(f"Missing required function {fn_name} in {strategy_id}")
-        return StrategyDefinition(strategy_id=strategy_id, meta=meta, module=module)
+        return StrategyDefinition(strategy_id=strategy_id, meta=meta, module=module, source_path=py_file)
 
 
 strategy_loader = StrategyLoader()

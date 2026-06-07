@@ -38,6 +38,15 @@ from app.backtest import (
     build_strategy,
 )
 
+from app.strategy_management import (
+    create_strategy,
+    delete_strategy,
+    get_strategy_definition,
+    reload_strategies,
+    update_strategy,
+    validate_executable_strategy,
+)
+
 configure_logging()
 logger = StructuredLogger("api")
 
@@ -58,7 +67,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_parse_cors_origins(),
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -113,6 +122,28 @@ class BacktestJobCreateResponse(BaseModel):
     job_id: UUID
     status: str
 
+
+class StrategyCreateRequest(BaseModel):
+    strategy_id: str
+    name: str
+    description: str = ""
+    version: str = "0.1.0"
+    parameter_schema: dict[str, Any] = {}
+    default_parameters: dict[str, Any] = {}
+    code: str
+
+
+class StrategyPatchRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    version: str | None = None
+    parameter_schema: dict[str, Any] | None = None
+    default_parameters: dict[str, Any] | None = None
+    code: str | None = None
+
+
+class StrategyValidateRequest(BaseModel):
+    parameters: dict[str, Any] = {}
 
 
 class ResearchReviewCreateRequest(BaseModel):
@@ -487,6 +518,24 @@ def list_strategies():
     return {"strategies": get_strategy_registry_metadata()}
 
 
+@app.post("/strategies")
+def create_executable_strategy(request: StrategyCreateRequest):
+    try:
+        return create_strategy(request.dict())
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/strategies/reload")
+def reload_executable_strategies():
+    try:
+        return {"strategies": reload_strategies()}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.get("/strategies/registry")
 def list_strategy_registry(
     status: str | None = Query(default=None),
@@ -501,6 +550,43 @@ def list_strategy_registry(
     if interval:
         strategies = [s for s in strategies if s.get("interval") == interval]
     return {"strategies": strategies}
+
+
+@app.get("/strategies/{strategy_id}")
+def get_executable_strategy(strategy_id: str):
+    try:
+        return dict(get_strategy_definition(strategy_id).meta)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@app.patch("/strategies/{strategy_id}")
+def patch_executable_strategy(strategy_id: str, request: StrategyPatchRequest):
+    try:
+        return update_strategy(strategy_id, request.dict(exclude_unset=True))
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.delete("/strategies/{strategy_id}")
+def delete_executable_strategy(strategy_id: str):
+    try:
+        return delete_strategy(strategy_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@app.post("/strategies/{strategy_id}/validate")
+def validate_strategy_endpoint(strategy_id: str, request: StrategyValidateRequest | None = None):
+    parameters = request.parameters if request else {}
+    result = validate_executable_strategy(strategy_id, parameters)
+    if not result["valid"]:
+        return JSONResponse(status_code=400, content=result)
+    return result
 
 
 @app.get("/backtests", response_model=list[BacktestRunSummary])
