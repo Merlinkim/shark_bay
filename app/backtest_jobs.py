@@ -213,6 +213,70 @@ def build_reproducibility_metadata(payload: dict[str, Any]) -> dict[str, Any]:
     return metadata
 
 
+def _execute_walk_forward_job(
+    db_url: str,
+    payload: dict[str, Any],
+    strategy_id: str,
+    symbol: str,
+    interval: str,
+    start_time: datetime | None,
+    end_time: datetime | None,
+) -> tuple[dict[str, Any], str | None]:
+    """Walk-forward job mode (Engine v2): the campaign verdict path.
+
+    Returns walk-forward aggregates as summary_metrics. Standard metric keys
+    (profit_factor, max_drawdown, trade_count, total_return, win_rate) are taken
+    from out-of-sample TEST windows only, expressed as fractions where the
+    legacy campaign thresholds expect fractions.
+    """
+    from app.walk_forward import run_walk_forward_backtest
+
+    if start_time is None or end_time is None:
+        raise ValueError("walk_forward mode requires candle_query.start_time and end_time")
+    wf = payload.get("walk_forward") or {}
+    result = run_walk_forward_backtest(
+        strategy=strategy_id,
+        symbol=symbol,
+        interval=interval,
+        start=start_time,
+        end=end_time,
+        train_days=int(wf.get("train_days", 14)),
+        validation_days=int(wf.get("validation_days", 3)),
+        test_days=int(wf.get("test_days", 3)),
+        step_days=int(wf["step_days"]) if wf.get("step_days") is not None else None,
+        params=payload.get("params") or {},
+        risk_config=payload.get("risk_config"),
+        execution_config=payload.get("execution_config"),
+        db_url=db_url,
+    )
+    agg = result["aggregate"]
+    job_result = {
+        "engine_version": result["engine_version"],
+        "mode": "walk_forward",
+        "summary_metrics": {
+            # Out-of-sample test aggregates mapped onto the standard keys.
+            "total_return": agg["avg_test_return_pct"] / 100.0,
+            "max_drawdown": abs(agg["worst_test_drawdown_pct"]) / 100.0,
+            "profit_factor": agg["avg_test_profit_factor"],
+            "trade_count": agg["total_test_trade_count"],
+            "win_rate": agg["test_win_rate_avg"],
+            "sharpe": agg["avg_test_sharpe"],
+            # Walk-forward-specific keys.
+            "avg_train_sharpe": agg["avg_train_sharpe"],
+            "avg_validation_sharpe": agg["avg_validation_sharpe"],
+            "avg_test_sharpe": agg["avg_test_sharpe"],
+            "degradation_score": agg["degradation_score"],
+            "positive_test_window_fraction": agg["positive_test_window_fraction"],
+            "wf_pass_fail": agg["pass_fail_status"],
+            "window_count": result["window_count"],
+            "evaluable_window_count": result["evaluable_window_count"],
+            "engine_version": result["engine_version"],
+        },
+        "windows": result["windows"],
+    }
+    return job_result, None
+
+
 def execute_job(db_url: str, job_row: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
     payload = job_row["payload_json"]
     strategy_id = payload["strategy_id"]
@@ -220,6 +284,14 @@ def execute_job(db_url: str, job_row: dict[str, Any]) -> tuple[dict[str, Any], s
     interval = payload["candle_query"].get("interval", "1m")
     start_time = datetime.fromisoformat(payload["candle_query"]["start_time"]) if payload["candle_query"].get("start_time") else None
     end_time = datetime.fromisoformat(payload["candle_query"]["end_time"]) if payload["candle_query"].get("end_time") else None
+
+    # Engine v2: research jobs must not cross the holdout boundary. Fail loudly
+    # instead of silently evaluating on clamped data.
+    from app.holdout import assert_range_outside_holdout
+    assert_range_outside_holdout(start_time, end_time)
+
+    if payload.get("mode") == "walk_forward":
+        return _execute_walk_forward_job(db_url, payload, strategy_id, symbol, interval, start_time, end_time)
 
     candles = CandleRepository(db_url).get_candles(symbol=symbol, interval=interval, start_time=start_time, end_time=end_time)
     if not candles:
@@ -248,14 +320,18 @@ def execute_job(db_url: str, job_row: dict[str, Any]) -> tuple[dict[str, Any], s
         "run_id": run_id,
         "config_hash": result.config_hash,
         "dataset_fingerprint": result.dataset_fingerprint,
+        "engine_version": result.engine_version,
         "summary_metrics": {
             "total_return": result.total_return_pct,
             "final_equity": result.final_equity,
             "max_drawdown": result.max_drawdown_pct,
             "profit_factor": result.profit_factor,
             "average_trade_return": result.average_trade_return_pct,
+            "trade_return_std": result.trade_return_std_pct,
             "trade_count": result.trades,
             "win_rate": result.win_rate_pct,
+            "sharpe": result.sharpe,
+            "engine_version": result.engine_version,
         },
     }
     reproducibility = job_row.get("reproducibility_json") or {}

@@ -5,13 +5,35 @@ import json
 import os
 import time
 from datetime import datetime
-from math import sqrt
 from statistics import mean
 from typing import Any
 
-from app.backtest import Candle, CandleRepository
+from app.backtest import (
+    Candle,
+    CandleRepository,
+    ENGINE_VERSION,
+    SimulatedExecutionModel,
+    build_dataset_fingerprint,
+    build_execution_config,
+    build_risk_config,
+    build_strategy,
+)
 from app.dataset_splits import generate_walk_forward_windows, parse_iso8601_utc
-from app.experiments import _signal, _strategy_lookup
+from app.holdout import holdout_unlocked, log_holdout_access
+
+# Research-neutral defaults: full notional sizing and effectively-disabled risk
+# overlays, so walk-forward measures the strategy signal itself. Campaigns can
+# override with explicit risk_config / execution_config.
+RESEARCH_RISK_DEFAULTS: dict[str, Any] = {
+    "position_size_mode": "notional_fraction",
+    "risk_per_trade": 1.0,
+    "max_position_size": 1.0,
+    "stop_loss_pct": 1.0,
+    "take_profit_pct": 1000.0,
+    "max_holding_minutes": 10 ** 9,
+    "max_daily_loss_pct": 100.0,
+    "max_drawdown_pct": 100.0,
+}
 
 
 def _avg(values: list[float]) -> float:
@@ -49,7 +71,23 @@ def _slice_bounds(candles: list[Candle], start: datetime, end: datetime) -> tupl
     return left, right
 
 
-def _segment_metrics(strategy_name: str, params: dict[str, Any], candles: list[Candle], left: int, right: int) -> dict[str, Any]:
+def _segment_metrics(
+    strategy_name: str,
+    params: dict[str, Any],
+    candles: list[Candle],
+    left: int,
+    right: int,
+    *,
+    interval: str = "1m",
+    risk_config: dict[str, Any] | None = None,
+    execution_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run the unified backtest engine on one walk-forward segment.
+
+    Uses the exact same SimulatedExecutionModel as campaign backtests, so a
+    walk-forward verdict and a single-window verdict can never disagree about
+    engine semantics.
+    """
     segment = candles[left:right]
     if len(segment) < 30:
         return {
@@ -58,58 +96,36 @@ def _segment_metrics(strategy_name: str, params: dict[str, Any], candles: list[C
             "sharpe": 0.0,
             "max_drawdown_pct": 0.0,
             "win_rate_pct": 0.0,
+            "profit_factor": 0.0,
             "trade_count": 0,
             "dataset_row_count": len(segment),
         }
 
-    fee = 0.0004
-    slippage = 0.0002
-    closes = [float(c.close) for c in segment]
-    equity = 1.0
-    position = 0
-    entry = None
-    rets: list[float] = []
-    curve: list[float] = []
-    wins = 0
-    trades = 0
-
-    for i, _ in enumerate(segment):
-        target = _signal(strategy_name, params, i, closes, position, entry)
-        if i > 0 and position == 1:
-            r = (closes[i] / closes[i - 1]) - 1.0
-            equity *= 1 + r
-            rets.append(r)
-        if target != position:
-            equity *= 1 - fee
-            if position == 0 and target == 1:
-                entry = i
-            if position == 1 and target == 0 and entry is not None:
-                tr = (closes[i] / closes[entry]) - 1.0 - (2 * fee + 2 * slippage)
-                trades += 1
-                if tr > 0:
-                    wins += 1
-                entry = None
-            position = target
-        curve.append(equity)
-
-    peak = 0.0
-    worst_dd = 0.0
-    for point in curve:
-        peak = max(peak, point)
-        if peak > 0:
-            worst_dd = min(worst_dd, ((point / peak) - 1.0) * 100.0)
-
-    avg = sum(rets) / len(rets) if rets else 0.0
-    sd = sqrt(sum((r - avg) ** 2 for r in rets) / len(rets)) if rets else 0.0
-    sharpe = (avg / sd) * sqrt(60.0) if sd > 0 else 0.0
+    strategy = build_strategy(strategy_name, dict(params))
+    engine = SimulatedExecutionModel(
+        execution_config=build_execution_config(execution_config),
+        risk_config=build_risk_config({**RESEARCH_RISK_DEFAULTS, **(risk_config or {})}),
+        interval=interval,
+    )
+    result = engine.run(
+        segment,
+        strategy,
+        config_hash="walk_forward_segment",
+        dataset_fingerprint=build_dataset_fingerprint(segment),
+    )
+    profit_factor = result.profit_factor
+    if profit_factor == float("inf"):
+        profit_factor = 999.0
 
     return {
         "status": "real_backtest",
-        "total_return_pct": (equity - 1.0) * 100.0,
-        "sharpe": sharpe,
-        "max_drawdown_pct": worst_dd,
-        "win_rate_pct": (wins / trades) * 100.0 if trades else 0.0,
-        "trade_count": trades,
+        "total_return_pct": result.total_return_pct,
+        "sharpe": result.sharpe,
+        # Engine convention: positive percentage = drawdown magnitude.
+        "max_drawdown_pct": result.max_drawdown_pct,
+        "win_rate_pct": result.win_rate_pct,
+        "profit_factor": profit_factor,
+        "trade_count": result.trades,
         "dataset_row_count": len(segment),
     }
 
@@ -125,24 +141,49 @@ def run_walk_forward_backtest(
     validation_days: int,
     test_days: int,
     step_days: int | None = None,
+    params: dict[str, Any] | None = None,
+    risk_config: dict[str, Any] | None = None,
+    execution_config: dict[str, Any] | None = None,
     include_holdout: bool = False,
     persist: bool = False,
     db_url: str | None = None,
+    candles: list[Candle] | None = None,
 ) -> dict[str, Any]:
-    del include_holdout, persist
+    del persist
     t0 = time.perf_counter()
+    from app.backtest import INTERVAL_MINUTES
+    if interval not in INTERVAL_MINUTES:
+        raise ValueError(f"Unsupported interval: {interval}")
+    # candles may be supplied pre-loaded (e.g. fetched from an exchange REST API
+    # for an offline/in-memory verdict). In that case no database is required.
+    preloaded = candles is not None
     resolved_db_url = db_url or os.getenv("DATABASE_URL")
-    if not resolved_db_url:
+    if not preloaded and not resolved_db_url:
         raise RuntimeError("DATABASE_URL is not set")
 
-    spec = _strategy_lookup(strategy)
-    if interval != spec["interval"]:
-        raise ValueError(f"Strategy {strategy} supports interval={spec['interval']}")
-    if symbol not in spec["symbols"]:
-        raise ValueError(f"Strategy {strategy} does not support symbol={symbol}")
+    allow_holdout = False
+    if include_holdout:
+        if not holdout_unlocked():
+            raise PermissionError(
+                "Holdout access requires RESEARCH_HOLDOUT_UNLOCK=1. "
+                "Holdout data is opened once per strategy at final validation only."
+            )
+        log_holdout_access(
+            resolved_db_url,
+            accessor="walk_forward",
+            purpose=f"strategy={strategy} symbol={symbol}",
+            range_start=start,
+            range_end=end,
+        )
+        allow_holdout = True
 
     t_load_start = time.perf_counter()
-    candles = CandleRepository(resolved_db_url).get_candles(symbol=symbol, interval=interval, start_time=start, end_time=end)
+    if preloaded:
+        candles = [c for c in candles if start <= c.open_time <= end]
+    else:
+        candles = CandleRepository(resolved_db_url).get_candles(
+            symbol=symbol, interval=interval, start_time=start, end_time=end, allow_holdout=allow_holdout
+        )
     load_candles_ms = round((time.perf_counter() - t_load_start) * 1000, 2)
 
     windows = generate_walk_forward_windows(
@@ -154,6 +195,8 @@ def run_walk_forward_backtest(
         step_days=step_days,
     )
 
+    resolved_params = dict(params or {})
+
     t_bt_start = time.perf_counter()
     payload_windows: list[dict[str, Any]] = []
     for idx, window in enumerate(windows):
@@ -161,9 +204,9 @@ def run_walk_forward_backtest(
         va_l, va_r = _slice_bounds(candles, window.validation.start, window.validation.end)
         te_l, te_r = _slice_bounds(candles, window.test.start, window.test.end)
 
-        train_metrics = _segment_metrics(strategy, spec["parameters"], candles, tr_l, tr_r)
-        validation_metrics = _segment_metrics(strategy, spec["parameters"], candles, va_l, va_r)
-        test_metrics = _segment_metrics(strategy, spec["parameters"], candles, te_l, te_r)
+        train_metrics = _segment_metrics(strategy, resolved_params, candles, tr_l, tr_r, interval=interval, risk_config=risk_config, execution_config=execution_config)
+        validation_metrics = _segment_metrics(strategy, resolved_params, candles, va_l, va_r, interval=interval, risk_config=risk_config, execution_config=execution_config)
+        test_metrics = _segment_metrics(strategy, resolved_params, candles, te_l, te_r, interval=interval, risk_config=risk_config, execution_config=execution_config)
 
         payload_windows.append(
             {
@@ -179,26 +222,46 @@ def run_walk_forward_backtest(
         )
     backtest_total_ms = round((time.perf_counter() - t_bt_start) * 1000, 2)
 
+    evaluable = [w for w in payload_windows if w["test_metrics"]["status"] == "real_backtest"]
     train_sharpes = [w["train_metrics"]["sharpe"] for w in payload_windows]
     validation_sharpes = [w["validation_metrics"]["sharpe"] for w in payload_windows]
-    test_sharpes = [w["test_metrics"]["sharpe"] for w in payload_windows]
-    test_returns = [w["test_metrics"]["total_return_pct"] for w in payload_windows]
-    test_drawdowns = [w["test_metrics"]["max_drawdown_pct"] for w in payload_windows]
-    test_win_rates = [w["test_metrics"]["win_rate_pct"] for w in payload_windows]
+    test_sharpes = [w["test_metrics"]["sharpe"] for w in evaluable]
+    test_returns = [w["test_metrics"]["total_return_pct"] for w in evaluable]
+    test_drawdowns = [w["test_metrics"]["max_drawdown_pct"] for w in evaluable]
+    test_win_rates = [w["test_metrics"]["win_rate_pct"] for w in evaluable]
+    test_profit_factors = [w["test_metrics"]["profit_factor"] for w in evaluable]
+    test_trade_counts = [w["test_metrics"]["trade_count"] for w in evaluable]
     degradation_values = [w["degradation_metrics"]["validation_to_test_sharpe_drop"] for w in payload_windows]
 
     avg_test_return = _avg(test_returns)
     avg_test_sharpe = _avg(test_sharpes)
+    avg_degradation = _avg(degradation_values)
+    positive_fraction = (
+        sum(1 for s in test_sharpes if s > 0) / len(test_sharpes) if test_sharpes else 0.0
+    )
+
+    # Pass requires: at least one evaluable window, positive average test Sharpe,
+    # bounded validation->test degradation, and the majority of test windows positive.
+    passed = (
+        bool(evaluable)
+        and avg_test_sharpe > 0.0
+        and avg_degradation <= 0.5
+        and positive_fraction >= 0.6
+    )
+
     total_runtime_ms = round((time.perf_counter() - t0) * 1000, 2)
 
     return {
         "strategy_name": strategy,
         "symbol": symbol,
         "interval": interval,
+        "engine_version": ENGINE_VERSION,
+        "params": resolved_params,
         "selected_range_start": start.isoformat(),
         "selected_range_end": end.isoformat(),
         "load_candles_ms": load_candles_ms,
         "window_count": len(payload_windows),
+        "evaluable_window_count": len(evaluable),
         "backtest_total_ms": backtest_total_ms,
         "total_runtime_ms": total_runtime_ms,
         "windows": payload_windows,
@@ -207,17 +270,20 @@ def run_walk_forward_backtest(
             "avg_validation_sharpe": _avg(validation_sharpes),
             "avg_test_sharpe": avg_test_sharpe,
             "avg_test_return_pct": avg_test_return,
-            "worst_test_drawdown_pct": min(test_drawdowns) if test_drawdowns else 0.0,
+            "avg_test_profit_factor": _avg(test_profit_factors),
+            "total_test_trade_count": sum(test_trade_counts),
+            # Positive percentage = worst drawdown magnitude across test windows.
+            "worst_test_drawdown_pct": max(test_drawdowns) if test_drawdowns else 0.0,
             "test_win_rate_avg": _avg(test_win_rates),
-            "stability_score": max(0.0, 1.0 - (abs(avg_test_return) / 100.0) * 0.1) if payload_windows else 0.0,
-            "degradation_score": _avg(degradation_values),
-            "pass_fail_status": "pass" if payload_windows and avg_test_sharpe >= 0 and _avg(degradation_values) <= 0.5 else "fail",
+            "positive_test_window_fraction": positive_fraction,
+            "degradation_score": avg_degradation,
+            "pass_fail_status": "pass" if passed else "fail",
         },
     }
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run walk-forward real backtest over rolling windows")
+    parser = argparse.ArgumentParser(description="Run walk-forward backtest over rolling windows (unified engine)")
     parser.add_argument("--strategy", required=True)
     parser.add_argument("--symbol", required=True)
     parser.add_argument("--interval", default="1m")
@@ -227,6 +293,7 @@ def main() -> None:
     parser.add_argument("--validation-days", type=int, required=True)
     parser.add_argument("--test-days", type=int, required=True)
     parser.add_argument("--step-days", type=int, default=None)
+    parser.add_argument("--params", default=None, help="Strategy parameters as a JSON object")
     parser.add_argument("--include-holdout", action="store_true")
     parser.add_argument("--persist", action="store_true")
     args = parser.parse_args()
@@ -241,6 +308,7 @@ def main() -> None:
         validation_days=args.validation_days,
         test_days=args.test_days,
         step_days=args.step_days,
+        params=json.loads(args.params) if args.params else None,
         include_holdout=args.include_holdout,
         persist=args.persist,
     )

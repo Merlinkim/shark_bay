@@ -1,0 +1,99 @@
+Fetching universe (24 symbols): klines + funding...
+  fetched 24 symbols
+  panel: 5931 bars, avg eligible universe ~23 names
+
+--- RESEARCH-REGION RESULT ---
+{
+  "research": {
+    "ann_return_on_capital_pct": -0.932,
+    "ann_sharpe": -0.092,
+    "realized_beta": -0.0274,
+    "rebalances": 236,
+    "avg_active_names": 9.8,
+    "n_bars": 4835
+  },
+  "walk_forward": {
+    "windows": 46,
+    "avg_test_sharpe": -0.4598354759228229,
+    "positive_window_fraction": 0.43478260869565216,
+    "pass": false
+  },
+  "significance_pass": false,
+  "significance": {
+    "tstat": {
+      "value": -0.19276169128794038,
+      "threshold": 2.0,
+      "pass": false
+    },
+    "dsr": {
+      "value": 0.0,
+      "threshold": 0.5,
+      "pass": false
+    },
+    "bootstrap": {
+      "pvalue": 0.565,
+      "threshold": 0.05,
+      "pass": false,
+      "skipped": false
+    }
+  },
+  "cost_margin_stress": {
+    "cost_1.0x": -0.932,
+    "cost_1.5x": -3.072,
+    "cost_2.0x": -5.213,
+    "util_0.33": -0.615
+  }
+}
+
+===== VERDICT: FAIL (holdout not opened) =====
+{
+  "research": {
+    "ann_return_on_capital_pct": -0.932,
+    "ann_sharpe": -0.092,
+    "realized_beta": -0.0274,
+    "rebalances": 236,
+    "avg_active_names": 9.8,
+    "n_bars": 4835
+  },
+  "walk_forward": {
+    "windows": 46,
+    "avg_test_sharpe": -0.4598354759228229,
+    "positive_window_fraction": 0.43478260869565216,
+    "pass": false
+  },
+  "significance": {
+    "pass": false,
+    "gates": {
+      "tstat": {
+        "value": -0.19276169128794038,
+        "threshold": 2.0,
+        "pass": false
+      },
+      "dsr": {
+        "value": 0.0,
+        "threshold": 0.5,
+        "pass": false
+      },
+      "bootstrap": {
+        "pvalue": 0.565,
+        "threshold": 0.05,
+        "pass": false,
+        "skipped": false
+      }
+    },
+    "reasons": [
+      "per-trade t-stat -0.19 < 2.0 (n=4835)",
+      "DSR 0.000 \u2264 0.5 (trials=6, sharpe=-0.46)",
+      "block-bootstrap p-value 0.565 \u2265 0.05"
+    ]
+  },
+  "cost_margin_stress": {
+    "cost_1.0x": -0.932,
+    "cost_1.5x": -3.072,
+    "cost_2.0x": -5.213,
+    "util_0.33": -0.615
+  },
+  "pre_holdout_pass": false,
+  "holdout": "NOT OPENED \u2014 research-region gates failed (stop condition)",
+  "verdict": "FAIL"
+}

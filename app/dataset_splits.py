@@ -4,8 +4,9 @@ import argparse
 import json
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
-from statistics import pstdev
 from typing import Any
+
+from app.stats import annualized_sharpe
 
 
 @dataclass(frozen=True)
@@ -114,14 +115,14 @@ def _returns(candles: list[Any]) -> list[float]:
 def _metrics(candles: list[Any]) -> dict[str, float]:
     rs = _returns(candles)
     if not candles or len(candles) < 2:
-        return {"rows": float(len(candles)), "total_return_pct": 0.0, "sharpe": 0.0, "win_rate_pct": 0.0}
+        return {"rows": float(len(candles)), "total_return_pct": 0.0, "sharpe": 0.0, "up_candle_pct": 0.0}
     closes = [float(c.close) for c in candles]
     total_return_pct = ((closes[-1] / closes[0]) - 1.0) * 100.0 if closes[0] else 0.0
-    avg = sum(rs) / len(rs) if rs else 0.0
-    std = pstdev(rs) if len(rs) > 1 else 0.0
-    sharpe = (avg / std) * (60.0**0.5) if std else 0.0
-    win_rate = (sum(1 for r in rs if r > 0) / len(rs)) * 100.0 if rs else 0.0
-    return {"rows": float(len(candles)), "total_return_pct": total_return_pct, "sharpe": sharpe, "win_rate_pct": win_rate}
+    # Buy-and-hold Sharpe of the raw candle series (market property, not a strategy metric).
+    sharpe = annualized_sharpe(rs, interval="1m")
+    # Fraction of up candles. Not a trade win rate — renamed so it can never be confused with one.
+    up_candle_pct = (sum(1 for r in rs if r > 0) / len(rs)) * 100.0 if rs else 0.0
+    return {"rows": float(len(candles)), "total_return_pct": total_return_pct, "sharpe": sharpe, "up_candle_pct": up_candle_pct}
 
 
 def build_split_payload(

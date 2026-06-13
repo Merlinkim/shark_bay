@@ -16,6 +16,46 @@ CREATE TABLE IF NOT EXISTS candles_1m (
 
 CREATE INDEX IF NOT EXISTS idx_candles_1m_open_time ON candles_1m (open_time DESC);
 
+-- Funding Carry milestone (Phase 1). See migration 20260613_0007.
+CREATE TABLE IF NOT EXISTS funding_rates (
+  symbol TEXT NOT NULL,
+  settlement_time TIMESTAMPTZ NOT NULL,
+  funding_rate NUMERIC(20,10) NOT NULL,
+  mark_price NUMERIC(20,10),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (symbol, settlement_time)
+);
+
+CREATE INDEX IF NOT EXISTS idx_funding_rates_settlement_time
+  ON funding_rates (symbol, settlement_time DESC);
+
+CREATE TABLE IF NOT EXISTS open_interest (
+  symbol TEXT NOT NULL,
+  ts TIMESTAMPTZ NOT NULL,
+  open_interest NUMERIC(30,10) NOT NULL,
+  open_interest_value NUMERIC(30,10),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (symbol, ts)
+);
+
+CREATE INDEX IF NOT EXISTS idx_open_interest_ts ON open_interest (symbol, ts DESC);
+
+-- Forward-collected liquidation events (migration 0008). Built from the public
+-- !forceOrder@arr WebSocket; no usable REST history exists.
+CREATE TABLE IF NOT EXISTS liquidations (
+  symbol TEXT NOT NULL,
+  event_time TIMESTAMPTZ NOT NULL,
+  side TEXT NOT NULL,
+  price NUMERIC(20,10) NOT NULL,
+  quantity NUMERIC(30,10) NOT NULL,
+  avg_price NUMERIC(20,10),
+  order_status TEXT,
+  ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (symbol, event_time, side, price, quantity)
+);
+
+CREATE INDEX IF NOT EXISTS idx_liquidations_symbol_time ON liquidations (symbol, event_time DESC);
+
 CREATE TABLE IF NOT EXISTS collector_heartbeat (
   collector_name TEXT PRIMARY KEY,
   symbol TEXT NOT NULL,
@@ -65,10 +105,21 @@ CREATE TABLE IF NOT EXISTS backtest_runs (
   deterministic_summary_timestamp TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  failure_reason TEXT
+  failure_reason TEXT,
+  engine_version TEXT NOT NULL DEFAULT 'v2'
 );
 
 CREATE INDEX IF NOT EXISTS idx_backtest_runs_symbol_interval_created_at ON backtest_runs (symbol, interval, created_at DESC);
+
+
+CREATE TABLE IF NOT EXISTS holdout_access_log (
+  id BIGSERIAL PRIMARY KEY,
+  accessor TEXT NOT NULL,
+  purpose TEXT NOT NULL,
+  range_start TIMESTAMPTZ,
+  range_end TIMESTAMPTZ,
+  accessed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
 CREATE TABLE IF NOT EXISTS backtest_metrics (
   run_id UUID PRIMARY KEY REFERENCES backtest_runs(run_id) ON DELETE CASCADE,
@@ -79,7 +130,8 @@ CREATE TABLE IF NOT EXISTS backtest_metrics (
   average_trade_return DOUBLE PRECISION NOT NULL,
   trade_count INTEGER NOT NULL,
   win_rate DOUBLE PRECISION NOT NULL,
-  total_fees DOUBLE PRECISION NOT NULL DEFAULT 0
+  total_fees DOUBLE PRECISION NOT NULL DEFAULT 0,
+  sharpe DOUBLE PRECISION
 );
 
 CREATE TABLE IF NOT EXISTS backtest_equity_curve (

@@ -45,17 +45,23 @@ def _get_db_url() -> str:
 def fetch_candles(symbol: str, interval: str, lookback_hours: int, db_url: str | None = None) -> list[Candle]:
     if interval != "1m":
         raise ValueError("Only interval=1m is supported")
+    from app.holdout import clamp_research_end
     since = datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
+    research_end = clamp_research_end(None)
     query = """
         SELECT open_time, open, high, low, close, volume
         FROM candles_1m
         WHERE symbol = %s AND open_time >= %s
-        ORDER BY open_time ASC
     """
+    query_params: list[object] = [symbol, since]
+    if research_end is not None:
+        query += " AND open_time < %s"
+        query_params.append(research_end)
+    query += " ORDER BY open_time ASC"
     candles: list[Candle] = []
     with psycopg.connect(db_url or _get_db_url(), row_factory=dict_row) as conn:
         with conn.cursor() as cur:
-            cur.execute(query, (symbol, since))
+            cur.execute(query, query_params)
             for row in cur.fetchall():
                 open_v = _safe_float(row["open"])
                 high_v = _safe_float(row["high"])

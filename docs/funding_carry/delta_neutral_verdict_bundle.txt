@@ -1,0 +1,67 @@
+Fetching real spot+perp+funding for BTCUSDT...
+  5931 aligned 8h bars
+Opening holdout (one-shot)...
+
+===== DELTA-NEUTRAL CARRY VERDICT =====
+{
+  "symbol": "BTCUSDT",
+  "interval": "8h",
+  "deployability_floor_pct_per_yr": 4.0,
+  "research_region": {
+    "ann_return_on_capital": 6.364,
+    "ann_sharpe": 10.528,
+    "capital_utilization": 0.5,
+    "n_bars": 4835
+  },
+  "walk_forward": {
+    "windows": 46,
+    "avg_test_sharpe": 1.6253792926593529,
+    "avg_test_ann_return": 0.014189990107559834,
+    "positive_window_fraction": 0.5652173913043478,
+    "pass": false
+  },
+  "significance": {
+    "pass": true,
+    "gates": {
+      "tstat": {
+        "value": 22.122362717005025,
+        "threshold": 2.0,
+        "pass": true
+      },
+      "dsr": {
+        "value": 1.0,
+        "threshold": 0.5,
+        "pass": true
+      },
+      "bootstrap": {
+        "pvalue": 0.0,
+        "threshold": 0.05,
+        "pass": true,
+        "skipped": false
+      }
+    },
+    "reasons": []
+  },
+  "cost_margin_stress_research_ann_return_pct": {
+    "cost_1.0x": 6.364,
+    "cost_1.5x": 6.337,
+    "cost_2.0x": 6.31,
+    "margin_util_0.33": 4.2
+  },
+  "holdout": {
+    "window": "2025-06-01..2026-06-01",
+    "n_bars": 1094,
+    "ann_return_on_capital_pct": 1.528,
+    "ann_return_on_capital_pct_1.5x_cost": 1.408,
+    "ann_sharpe": 5.209,
+    "total_cost_fraction": 0.0024
+  },
+  "gate_results": {
+    "walk_forward_pass": false,
+    "significance_pass": true,
+    "holdout_positive": true,
+    "holdout_meets_deploy_floor": false,
+    "holdout_cost_robust_1.5x": true
+  },
+  "verdict": "FAIL"
+}

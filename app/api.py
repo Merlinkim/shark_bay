@@ -1,3 +1,4 @@
+import json
 import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -612,6 +613,7 @@ def run_backtest(request: BacktestRunRequest):
             "average_trade_return": result.average_trade_return_pct,
             "trade_count": result.trades,
             "win_rate": result.win_rate_pct,
+            "sharpe": result.sharpe,
         },
     }
 
@@ -905,7 +907,17 @@ def research_dataset_splits(
 ):
     if start is not None and end is not None and end <= start:
         raise HTTPException(status_code=400, detail="Invalid range: end must be greater than start")
-    candles = CandleRepository(get_db_url()).get_candles(symbol=symbol, interval=interval, start_time=start, end_time=end)
+    allow_holdout = False
+    if include_holdout:
+        from app.holdout import holdout_unlocked, log_holdout_access
+        if not holdout_unlocked():
+            raise HTTPException(
+                status_code=403,
+                detail="Holdout access requires RESEARCH_HOLDOUT_UNLOCK=1 and is audited.",
+            )
+        log_holdout_access(get_db_url(), accessor="dataset_splits", purpose=f"symbol={symbol}", range_start=start, range_end=end)
+        allow_holdout = True
+    candles = CandleRepository(get_db_url()).get_candles(symbol=symbol, interval=interval, start_time=start, end_time=end, allow_holdout=allow_holdout)
     return build_split_payload(
         symbol=symbol,
         interval=interval,
@@ -930,9 +942,18 @@ def research_walk_forward_run(
     validation_days: int = Query(30, ge=1),
     test_days: int = Query(30, ge=1),
     step_days: int | None = Query(None, ge=1),
+    params: str | None = Query(None, description="Strategy parameters as a JSON object"),
     include_holdout: bool = Query(False),
     persist: bool = Query(False),
 ):
+    parsed_params = None
+    if params:
+        try:
+            parsed_params = json.loads(params)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="params must be a JSON object")
+        if not isinstance(parsed_params, dict):
+            raise HTTPException(status_code=400, detail="params must be a JSON object")
     try:
         return run_walk_forward_backtest(
             strategy=strategy,
@@ -944,10 +965,13 @@ def research_walk_forward_run(
             validation_days=validation_days,
             test_days=test_days,
             step_days=step_days,
+            params=parsed_params,
             include_holdout=include_holdout,
             persist=persist,
             db_url=get_db_url(),
         )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

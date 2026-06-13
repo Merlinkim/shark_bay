@@ -6,13 +6,13 @@ import json
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
-from math import sqrt
 from typing import Any
 
 import psycopg
 from psycopg.rows import dict_row
 
 from app.backtest import Candle, CandleRepository
+from app.stats import annualized_sharpe
 from app.strategy_registry import list_strategy_specs
 
 
@@ -227,14 +227,18 @@ def run_real_backtest_experiment(strategy_name: str, symbol: str, interval: str,
     if len(candles) < 30:
         return ExperimentResult(str(uuid.uuid5(uuid.NAMESPACE_DNS, exp_key)), strategy_name, spec["version"], symbol, interval, candles[0].open_time.isoformat() if candles else None, candles[-1].open_time.isoformat() if candles else None, len(candles), fp, p_hash, spec["parameters"], spec["features_used"], spec["intended_regime"], spec["risk_profile"], 0.0, 0.0, 0.0, 0.0, 0, "insufficient_data", False, created_at, [], [])
 
-    fee = 0.0004; slippage = 0.0002
+    # Phase 0: align to the unified Binance taker baseline (10 bps fee + 2 bps
+    # slippage). Previously 4 bps here vs 6 bps in the engine — a strategy could
+    # look profitable in one path and not the other. See backtest.BINANCE_TAKER_FEE_BPS.
+    fee = 0.0010; slippage = 0.0002
     closes = [float(c.close) for c in candles]
     equity = 1.0; peak = 1.0; position = 0; entry = None
     rets=[]; fills=[]; curve=[]; wins=0; trades=0
     for i, candle in enumerate(candles):
         target = _signal(strategy_name, spec["parameters"], i, closes, position, entry)
-        if i > 0 and position == 1:
-            r = (closes[i] / closes[i-1]) - 1.0
+        if i > 0:
+            # Full-period return series: 0.0 when flat, so Sharpe prices in exposure.
+            r = (closes[i] / closes[i-1]) - 1.0 if position == 1 else 0.0
             equity *= (1 + r)
             rets.append(r)
         if target != position:
@@ -254,9 +258,7 @@ def run_real_backtest_experiment(strategy_name: str, symbol: str, interval: str,
         curve.append({"open_time": candle.open_time.isoformat(), "equity": round(equity, 8)})
 
     dd = min((((p["equity"] / max(x["equity"] for x in curve[:idx+1])) - 1.0) * 100.0) for idx, p in enumerate(curve))
-    avg = sum(rets)/len(rets) if rets else 0.0
-    sd = sqrt(sum((r-avg)**2 for r in rets)/len(rets)) if rets else 0.0
-    sharpe = (avg/sd)*sqrt(60.0) if sd > 0 else 0.0
+    sharpe = annualized_sharpe(rets, interval=interval)
     return ExperimentResult(
         experiment_id=str(uuid.uuid5(uuid.NAMESPACE_DNS, exp_key)), strategy_name=strategy_name, strategy_version=spec["version"], symbol=symbol, interval=interval,
         dataset_start=candles[0].open_time.isoformat(), dataset_end=candles[-1].open_time.isoformat(), dataset_row_count=len(candles),
