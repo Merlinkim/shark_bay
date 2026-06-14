@@ -30,9 +30,24 @@ def list_migration_files() -> list[Path]:
     return sorted(p for p in migrations_dir.glob("*.sql") if p.is_file())
 
 
+def apply_base_schema(conn: psycopg.Connection) -> bool:
+    """Apply the idempotent base schema (CREATE TABLE IF NOT EXISTS ...) so the
+    migrate step is self-sufficient on a greenfield DB. On a restored dump every
+    object already exists, so this is a no-op. Without this, incremental ALTERs
+    (e.g. add sharpe to backtest_metrics) would run before the base tables exist.
+    """
+    schema_path = Path(__file__).parent / "schema.sql"
+    if not schema_path.exists():
+        return False
+    with conn.cursor() as cur:
+        cur.execute(schema_path.read_text(encoding="utf-8"))
+    return True
+
+
 def apply_migrations(db_url: str) -> list[str]:
     applied: list[str] = []
     with psycopg.connect(db_url) as conn:
+        apply_base_schema(conn)
         ensure_migration_table(conn)
         with conn.cursor() as cur:
             for migration_file in list_migration_files():
